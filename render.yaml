@@ -2,15 +2,14 @@ services:
   - type: web
     name: hnf-pdf-converter
     env: python
+    runtime: python-3.11.9
     buildCommand: |
-      apt-get update && apt-get install -y default-jdk
+      python --version
       pip install --upgrade pip
       pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300
     plan: free
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
       - key: JAVA_HOME
         value: /usr/lib/jvm/default-java
     autoDeploy: false
