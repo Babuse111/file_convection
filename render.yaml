@@ -12,4 +12,4 @@ services:
     envVars:
       - key: JAVA_HOME
         value: /usr/lib/jvm/default-java
-    autoDeploy: false
+    autoDeploy: true
