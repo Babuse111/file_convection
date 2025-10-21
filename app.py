@@ -26,30 +26,6 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def clean_amount(amount_str):
-    """Clean and convert amount strings to float"""
-    if pd.isna(amount_str) or amount_str == '':
-        return None
-    
-    # Convert to string and clean
-    amount_str = str(amount_str).strip()
-    
-    # Remove 'R' and other currency symbols
-    amount_str = re.sub(r'[R$€£]', '', amount_str)
-    
-    # Handle negative amounts in parentheses or with minus sign
-    if '(' in amount_str and ')' in amount_str:
-        amount_str = '-' + re.sub(r'[()]', '', amount_str)
-    
-    # Remove spaces and commas
-    amount_str = re.sub(r'[\s,]', '', amount_str)
-    
-    # Try to convert to float
-    try:
-        return float(amount_str)
-    except:
-        return None
-
 def extract_transaction_data(df_list, bank_type="auto"):
     """Extract and clean transaction data from the messy PDF data"""
     # Import the improved extraction function from pdf_cleaner
@@ -57,12 +33,12 @@ def extract_transaction_data(df_list, bank_type="auto"):
     return pdf_cleaner.extract_transaction_data(df_list, bank_type)
 
 def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
-    """Convert PDF to CSV and return the output file path - NO JAVA REQUIRED"""
+    """Convert PDF to CSV and return the output file path - Enhanced for ABSA"""
     try:
         # Ensure output folder exists
         os.makedirs(output_folder, exist_ok=True)
         
-        # Import pdf_cleaner module for Java-free PDF processing
+        # Import pdf_cleaner module for enhanced PDF processing
         import pdf_cleaner
         
         # Get filename without extension
@@ -72,13 +48,14 @@ def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
         print(f"Processing PDF: {pdf_path}")
         print(f"Bank type: {bank_type}")
         
-        # Use the Java-free extraction method from pdf_cleaner
+        # Use the enhanced extraction method from pdf_cleaner (supports ABSA better)
         df_list = pdf_cleaner.extract_tables_from_pdf(pdf_path)
         
         if not df_list:
-            raise Exception("No tables found in PDF")
+            # This should not happen with the new enhanced extraction
+            raise Exception("No data could be extracted from PDF")
         
-        print(f"Found {len(df_list)} tables in PDF")
+        print(f"Found {len(df_list)} data sources in PDF")
         
         # Extract and clean transaction data
         transactions_df = extract_transaction_data(df_list, bank_type)
@@ -115,133 +92,79 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
-    if 'files[]' not in request.files:
-        flash('No file selected')
+    if 'pdf_files' not in request.files:
+        flash('No files selected')
         return redirect(request.url)
     
-    files = request.files.getlist('files[]')
-    bank_type = request.form.get('bank_type', 'auto')  # Get selected bank type
+    files = request.files.getlist('pdf_files')
+    bank_type = request.form.get('bank_type', 'auto')
     
-    if not files or files[0].filename == '':
-        flash('No file selected')
-        return redirect(url_for('index'))
+    if not files or all(file.filename == '' for file in files):
+        flash('No files selected')
+        return redirect(request.url)
     
-    successful_uploads = []
-    failed_uploads = []
+    results = []
+    failed_files = []
     
-    # Create a timestamp folder for this batch
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    batch_output_folder = os.path.join(app.config['OUTPUT_FOLDER'], f"batch_{timestamp}")
-    os.makedirs(batch_output_folder, exist_ok=True)
+    # Clear previous uploads and outputs
+    for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER]:
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
+        os.makedirs(folder, exist_ok=True)
     
     for file in files:
         if file and allowed_file(file.filename):
             try:
-                filename = secure_filename(file.filename)
-                
                 # Save uploaded file
-                upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                filename = secure_filename(file.filename)
+                upload_path = os.path.join(UPLOAD_FOLDER, filename)
                 file.save(upload_path)
                 
-                # Process PDF to CSV with selected bank type (Java-free)
-                csv_path, row_count = process_pdf_to_csv(upload_path, batch_output_folder, bank_type)
+                # Process PDF to CSV using enhanced extraction
+                csv_path, row_count = process_pdf_to_csv(upload_path, OUTPUT_FOLDER, bank_type)
+                csv_filename = os.path.basename(csv_path)
                 
-                successful_uploads.append({
-                    'filename': filename,
-                    'csv_file': os.path.basename(csv_path),
-                    'rows': row_count,
-                    'bank_type': bank_type
+                results.append({
+                    'pdf_name': filename,
+                    'csv_name': csv_filename,
+                    'csv_path': csv_path,
+                    'row_count': row_count
                 })
                 
-                # Clean up uploaded file
-                os.remove(upload_path)
-                
             except Exception as e:
-                failed_uploads.append({
+                failed_files.append({
                     'filename': file.filename,
                     'error': str(e)
                 })
-                # Clean up uploaded file if it exists
-                upload_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
-                if os.path.exists(upload_path):
-                    os.remove(upload_path)
-        else:
-            failed_uploads.append({
-                'filename': file.filename,
-                'error': 'Invalid file type. Only PDF files are allowed.'
-            })
     
-    # Create a zip file with all CSV outputs
-    if successful_uploads:
-        zip_filename = f"csv_outputs_{timestamp}.zip"
-        zip_path = os.path.join(app.config['OUTPUT_FOLDER'], zip_filename)
+    if not results and failed_files:
+        # If all files failed, show error page
+        return render_template('index.html', error=f"All files failed to process. First error: {failed_files[0]['error']}")
+    
+    # Create ZIP file if multiple CSVs
+    zip_path = None
+    if len(results) > 1:
+        zip_filename = f"bank_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        zip_path = os.path.join(OUTPUT_FOLDER, zip_filename)
         
         with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for file_info in successful_uploads:
-                csv_file_path = os.path.join(batch_output_folder, file_info['csv_file'])
-                zipf.write(csv_file_path, file_info['csv_file'])
+            for result in results:
+                zipf.write(result['csv_path'], result['csv_name'])
     
     return render_template('results.html', 
-                         successful_uploads=successful_uploads,
-                         failed_uploads=failed_uploads,
-                         batch_folder=f"batch_{timestamp}",
-                         zip_file=zip_filename if successful_uploads else None,
-                         bank_type=bank_type)
+                         results=results, 
+                         failed_files=failed_files,
+                         zip_filename=os.path.basename(zip_path) if zip_path else None,
+                         bank_type=bank_type.title())
 
-@app.route('/download/<path:filename>')
+@app.route('/download/<filename>')
 def download_file(filename):
-    file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
-    if os.path.exists(file_path):
-        return send_from_directory(app.config['OUTPUT_FOLDER'], filename, as_attachment=True)
-    else:
-        flash(f'File not found: {filename}')
-        return redirect(url_for('index'))
-
-@app.route('/download_batch/<batch_folder>/<filename>')
-def download_batch_file(batch_folder, filename):
-    batch_path = os.path.join(app.config['OUTPUT_FOLDER'], batch_folder)
-    file_path = os.path.join(batch_path, filename)
-    if os.path.exists(file_path):
-        return send_from_directory(batch_path, filename, as_attachment=True)
-    else:
-        flash(f'File not found: {filename} in batch {batch_folder}')
-        return redirect(url_for('index'))
-
-@app.route('/clear_outputs')
-def clear_outputs():
-    """Clear all output files"""
-    try:
-        if os.path.exists(app.config['OUTPUT_FOLDER']):
-            shutil.rmtree(app.config['OUTPUT_FOLDER'])
-        os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
-        flash('All output files cleared successfully!')
-    except Exception as e:
-        flash(f'Error clearing files: {str(e)}')
-    return redirect(url_for('index'))
-
-@app.route('/debug')
-def debug_info():
-    """Debug route to check folder structure"""
-    debug_info = {
-        'upload_folder': app.config['UPLOAD_FOLDER'],
-        'output_folder': app.config['OUTPUT_FOLDER'],
-        'upload_exists': os.path.exists(app.config['UPLOAD_FOLDER']),
-        'output_exists': os.path.exists(app.config['OUTPUT_FOLDER']),
-        'current_dir': os.getcwd(),
-        'output_contents': []
-    }
-    
-    if os.path.exists(app.config['OUTPUT_FOLDER']):
-        try:
-            debug_info['output_contents'] = os.listdir(app.config['OUTPUT_FOLDER'])
-        except:
-            debug_info['output_contents'] = ['Error reading directory']
-    
-    return jsonify(debug_info)
+    return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
 
 @app.route('/health')
 def health_check():
-    return jsonify({'status': 'healthy', 'message': 'HNF PDF Converter is running'})
+    return jsonify({'status': 'healthy', 'message': 'Enhanced HNF PDF Converter is running'})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
