@@ -1,6 +1,5 @@
 from flask import Flask, request, render_template, send_from_directory, flash, redirect, url_for, jsonify
 import os
-import tabula
 import pandas as pd
 from werkzeug.utils import secure_filename
 import zipfile
@@ -58,47 +57,56 @@ def extract_transaction_data(df_list, bank_type="auto"):
     return pdf_cleaner.extract_transaction_data(df_list, bank_type)
 
 def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
-    """Convert PDF to CSV and return the output file path"""
+    """Convert PDF to CSV and return the output file path - NO JAVA REQUIRED"""
     try:
         # Ensure output folder exists
         os.makedirs(output_folder, exist_ok=True)
         
-        # Set environment variable to force subprocess mode
-        os.environ["TABULA_JAVA"] = "subprocess"
+        # Import pdf_cleaner module for Java-free PDF processing
+        import pdf_cleaner
         
         # Get filename without extension
         filename = os.path.splitext(os.path.basename(pdf_path))[0]
         csv_path = os.path.join(output_folder, f"{filename}.csv")
         
-        # Read PDF file using subprocess mode
-        df_list = tabula.read_pdf(pdf_path, pages='all', force_subprocess=True)
+        print(f"Processing PDF: {pdf_path}")
+        print(f"Bank type: {bank_type}")
+        
+        # Use the Java-free extraction method from pdf_cleaner
+        df_list = pdf_cleaner.extract_tables_from_pdf(pdf_path)
+        
+        if not df_list:
+            raise Exception("No tables found in PDF")
+        
+        print(f"Found {len(df_list)} tables in PDF")
         
         # Extract and clean transaction data
-        transactions = extract_transaction_data(df_list, bank_type)
+        transactions_df = extract_transaction_data(df_list, bank_type)
         
-        if not transactions:
-            raise Exception("No transactions found in PDF")
+        if transactions_df.empty:
+            raise Exception("No transaction data could be extracted")
         
-        # Create DataFrame with proper structure
-        df = pd.DataFrame(transactions)
-        
-        # Sort by date
+        # Sort by date if possible
         try:
-            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
-            df = df.sort_values('Date')
-            df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
+            transactions_df['Date'] = pd.to_datetime(transactions_df['Date'], format='%d/%m/%Y', errors='coerce')
+            transactions_df = transactions_df.sort_values('Date')
+            transactions_df['Date'] = transactions_df['Date'].dt.strftime('%d/%m/%Y')
         except:
-            pass
+            print("Could not sort by date, keeping original order")
         
         # Remove duplicates
-        df = df.drop_duplicates()
+        transactions_df = transactions_df.drop_duplicates()
         
         # Save to CSV with proper formatting
-        df.to_csv(csv_path, index=False)
+        transactions_df.to_csv(csv_path, index=False)
         
-        return csv_path, len(df)
-    
+        print(f"Saved CSV to: {csv_path}")
+        print(f"Extracted {len(transactions_df)} transactions")
+        
+        return csv_path, len(transactions_df)
+        
     except Exception as e:
+        print(f"Error in process_pdf_to_csv: {str(e)}")
         raise Exception(f"Error processing PDF: {str(e)}")
 
 @app.route('/')
@@ -135,7 +143,7 @@ def upload_files():
                 upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(upload_path)
                 
-                # Process PDF to CSV with selected bank type
+                # Process PDF to CSV with selected bank type (Java-free)
                 csv_path, row_count = process_pdf_to_csv(upload_path, batch_output_folder, bank_type)
                 
                 successful_uploads.append({
@@ -230,6 +238,10 @@ def debug_info():
             debug_info['output_contents'] = ['Error reading directory']
     
     return jsonify(debug_info)
+
+@app.route('/health')
+def health_check():
+    return jsonify({'status': 'healthy', 'message': 'HNF PDF Converter is running'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
