@@ -1,12 +1,75 @@
 # Import the required Module
-import tabula
 import pandas as pd
 import os
 import re
 from datetime import datetime
 
-# Set environment variable to force subprocess mode (more reliable on Windows)
-os.environ["TABULA_JAVA"] = "subprocess"
+# Try to import tabula, fall back to alternative if Java not available
+try:
+    import tabula
+    # Set environment variable to force subprocess mode (more reliable on Windows)
+    os.environ["TABULA_JAVA"] = "subprocess"
+    TABULA_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: tabula-py not available ({e}). Falling back to alternative PDF processing.")
+    TABULA_AVAILABLE = False
+
+# Alternative PDF processing
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+
+def extract_tables_from_pdf(pdf_path):
+    """Extract tables from PDF using available method"""
+    if TABULA_AVAILABLE:
+        try:
+            # Try tabula first
+            return tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, lattice=True, pandas_options={'header': None})
+        except Exception as e:
+            print(f"Tabula failed: {e}")
+            if PDFPLUMBER_AVAILABLE:
+                return extract_with_pdfplumber(pdf_path)
+            else:
+                raise Exception("No PDF processing method available")
+    elif PDFPLUMBER_AVAILABLE:
+        return extract_with_pdfplumber(pdf_path)
+    else:
+        raise Exception("No PDF processing library available")
+
+def extract_with_pdfplumber(pdf_path):
+    """Alternative PDF processing using pdfplumber"""
+    import pdfplumber
+    
+    all_tables = []
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            # Extract tables from the page
+            tables = page.extract_tables()
+            for table in tables:
+                if table:  # If table is not empty
+                    # Convert to DataFrame
+                    df = pd.DataFrame(table[1:], columns=table[0] if table[0] else None)
+                    all_tables.append(df)
+            
+            # Also try to extract text and parse it
+            text = page.extract_text()
+            if text:
+                # Try to find transaction-like patterns in text
+                lines = text.split('\n')
+                transaction_data = []
+                for line in lines:
+                    # Look for date patterns and amounts
+                    if re.search(r'\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}', line) and re.search(r'\d+\.\d{2}', line):
+                        transaction_data.append(line.split())
+                
+                if transaction_data:
+                    df = pd.DataFrame(transaction_data)
+                    all_tables.append(df)
+    
+    return all_tables
 
 def clean_amount(amount_str):
     """Clean and convert amount strings to float"""

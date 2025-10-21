@@ -2,16 +2,19 @@ services:
   - type: web
     name: hnf-pdf-converter
     env: python
+    runtime: python-3.11.9
     buildCommand: |
-      apt-get update && apt-get install -y default-jdk  # ← This installs Java
-      export JAVA_HOME=/usr/lib/jvm/default-java
-      export PATH=$PATH:$JAVA_HOME/bin
-      pip install --only-binary=all -r requirements.txt  # ← This uses your requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300
+      echo "Checking for Java..."
+      which java || echo "Java not found"
+      java -version || echo "Java version check failed"
+      echo "Installing requirements..."
+      pip install --upgrade pip
+      pip install --only-binary=all -r requirements.txt
+    startCommand: |
+      echo "Starting application..."
+      echo "Java check at startup:"
+      which java || echo "Java not found at startup"
+      java -version || echo "Java version check failed at startup"
+      gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300
     plan: free
-    envVars:
-      - key: JAVA_HOME
-        value: /usr/lib/jvm/default-java
-      - key: PATH
-        value: /usr/lib/jvm/default-java/bin:$PATH
     autoDeploy: true
