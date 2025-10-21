@@ -92,16 +92,31 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
-    if 'pdf_files' not in request.files:
-        flash('No files selected')
-        return redirect(request.url)
+    print("Upload route called")
+    print(f"Request method: {request.method}")
+    print(f"Request files: {list(request.files.keys())}")
+    print(f"Request form: {dict(request.form)}")
     
-    files = request.files.getlist('pdf_files')
+    # Check for different possible file field names
+    files = None
+    file_field_names = ['pdf_files', 'files[]', 'files', 'file']
+    
+    for field_name in file_field_names:
+        if field_name in request.files:
+            files = request.files.getlist(field_name)
+            print(f"Found files in field: {field_name}")
+            break
+    
+    if not files:
+        flash('No files were uploaded. Please select PDF files.')
+        return redirect(url_for('index'))
+    
     bank_type = request.form.get('bank_type', 'auto')
+    print(f"Bank type: {bank_type}")
     
-    if not files or all(file.filename == '' for file in files):
+    if all(file.filename == '' for file in files):
         flash('No files selected')
-        return redirect(request.url)
+        return redirect(url_for('index'))
     
     results = []
     failed_files = []
@@ -113,8 +128,10 @@ def upload_files():
         os.makedirs(folder, exist_ok=True)
     
     for file in files:
-        if file and allowed_file(file.filename):
+        if file and file.filename != '' and allowed_file(file.filename):
             try:
+                print(f"Processing file: {file.filename}")
+                
                 # Save uploaded file
                 filename = secure_filename(file.filename)
                 upload_path = os.path.join(UPLOAD_FOLDER, filename)
@@ -131,18 +148,28 @@ def upload_files():
                     'row_count': row_count
                 })
                 
+                print(f"Successfully processed: {filename} -> {csv_filename} ({row_count} transactions)")
+                
             except Exception as e:
+                print(f"Failed to process {file.filename}: {str(e)}")
                 failed_files.append({
                     'filename': file.filename,
                     'error': str(e)
                 })
+        elif file and file.filename != '':
+            failed_files.append({
+                'filename': file.filename,
+                'error': 'Invalid file type. Only PDF files are allowed.'
+            })
     
     if not results and failed_files:
-        # If all files failed, show error page
-        return render_template('index.html', error=f"All files failed to process. First error: {failed_files[0]['error']}")
+        # If all files failed, show error page with details
+        error_msg = f"All files failed to process. Errors: {'; '.join([f'{f['filename']}: {f['error']}' for f in failed_files])}"
+        return render_template('index.html', error=error_msg)
     
     # Create ZIP file if multiple CSVs
     zip_path = None
+    zip_filename = None
     if len(results) > 1:
         zip_filename = f"bank_statements_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         zip_path = os.path.join(OUTPUT_FOLDER, zip_filename)
@@ -151,20 +178,47 @@ def upload_files():
             for result in results:
                 zipf.write(result['csv_path'], result['csv_name'])
     
+    print(f"Rendering results: {len(results)} successful, {len(failed_files)} failed")
+    
     return render_template('results.html', 
                          results=results, 
                          failed_files=failed_files,
-                         zip_filename=os.path.basename(zip_path) if zip_path else None,
+                         zip_filename=zip_filename,
                          bank_type=bank_type.title())
+
+# Add a simple test route
+@app.route('/test')
+def test():
+    return jsonify({'message': 'Flask app is working', 'routes': [str(rule) for rule in app.url_map.iter_rules()]})
 
 @app.route('/download/<filename>')
 def download_file(filename):
-    return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
+    try:
+        return send_from_directory(OUTPUT_FOLDER, filename, as_attachment=True)
+    except Exception as e:
+        flash(f'Error downloading file: {str(e)}')
+        return redirect(url_for('index'))
 
 @app.route('/health')
 def health_check():
     return jsonify({'status': 'healthy', 'message': 'Enhanced HNF PDF Converter is running'})
 
+# Add error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('index.html', error="Page not found"), 404
+
+@app.errorhandler(405)
+def method_not_allowed_error(error):
+    return render_template('index.html', error="Method not allowed. Please use the upload form."), 405
+
+@app.errorhandler(500)
+def internal_error(error):
+    return render_template('index.html', error="Internal server error. Please try again."), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"Starting Flask app on port {port}")
+    print(f"Upload folder: {UPLOAD_FOLDER}")
+    print(f"Output folder: {OUTPUT_FOLDER}")
+    app.run(host='0.0.0.0', port=port, debug=True)  # Enable debug mode to see errors
