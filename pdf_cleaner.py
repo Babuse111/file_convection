@@ -228,28 +228,9 @@ def clean_amount(amount_str):
     except:
         return None
 
-def detect_bank_type(df_list):
-    """Detect bank type from the extracted data"""
-    all_text = ""
-    for df in df_list:
-        all_text += df.to_string().lower()
-    
-    if 'fnb' in all_text or 'first national' in all_text:
-        return 'fnb'
-    elif 'standard bank' in all_text or 'standard' in all_text:
-        return 'standard'
-    elif 'absa' in all_text:
-        return 'absa'
-    else:
-        return 'unknown'
-
 def extract_transaction_data(df_list, bank_type="auto"):
     """Extract and clean transaction data from the PDF data - Enhanced for ABSA"""
     print(f"Extracting transaction data for {len(df_list)} tables")
-    
-    if bank_type == "auto":
-        bank_type = detect_bank_type(df_list)
-        print(f"Detected bank type: {bank_type}")
     
     all_transactions = []
     
@@ -278,12 +259,17 @@ def extract_transaction_data(df_list, bank_type="auto"):
                 # Extract amount (last number in the row)
                 amounts = re.findall(r'[\d\-\.,]+', row_text)
                 amount = None
+                balance = None
+                
                 if amounts:
                     for amt in reversed(amounts):  # Check from the end
                         cleaned_amt = clean_amount(amt)
                         if cleaned_amt is not None:
-                            amount = cleaned_amt
-                            break
+                            if amount is None:
+                                amount = cleaned_amt
+                            elif balance is None:
+                                balance = cleaned_amt
+                                break
                 
                 if amount is not None:
                     # Categorize transaction
@@ -294,8 +280,7 @@ def extract_transaction_data(df_list, bank_type="auto"):
                         'Description': description,
                         'Category': category,
                         'Amount': amount,
-                        'Balance': '',
-                        'Bank': bank_type.upper()
+                        'Balance': balance if balance else ''
                     })
     
     print(f"Extracted {len(all_transactions)} transactions")
@@ -307,8 +292,7 @@ def extract_transaction_data(df_list, bank_type="auto"):
             'Description': 'PDF format may not be supported',
             'Category': 'Error',
             'Amount': 0.0,
-            'Balance': '',
-            'Bank': bank_type.upper()
+            'Balance': ''
         })
     
     return pd.DataFrame(all_transactions)
@@ -337,3 +321,54 @@ def categorize_transaction(description):
             return category
     
     return 'Other'
+
+def process_pdf(pdf_path):
+    """Main function to process PDF and return transaction data"""
+    print(f"Processing PDF: {pdf_path}")
+    
+    # Extract tables using PDFplumber
+    df_list = extract_tables_from_pdf(pdf_path)
+    
+    if not df_list:
+        raise Exception("No extraction method available or PDF could not be processed")
+    
+    # Extract transactions
+    transactions_df = extract_transaction_data(df_list)
+    
+    # Convert DataFrame to list of dictionaries for consistency
+    if isinstance(transactions_df, pd.DataFrame):
+        transactions = transactions_df.to_dict('records')
+    else:
+        transactions = transactions_df
+    
+    if not transactions:
+        # Create a basic structure if nothing found
+        transactions = [{
+            'Date': 'No data found',
+            'Description': 'PDF format may not be supported',
+            'Category': 'Error',
+            'Amount': 0.0,
+            'Balance': ''
+        }]
+    
+    return transactions
+
+# Main execution
+if __name__ == "__main__":
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Test with FNB
+    fnb_path = os.path.join(script_dir, "FNB.pdf")
+    fnb_csv = os.path.join(script_dir, "FNB_cleaned.csv")
+    
+    if os.path.exists(fnb_path):
+        print("=== Testing FNB Statement ===")
+        transactions = process_pdf(fnb_path)
+        
+        # Create DataFrame and save
+        df = pd.DataFrame(transactions)
+        df.to_csv(fnb_csv, index=False)
+        print(f"Saved {len(df)} transactions to {fnb_csv}")
+    else:
+        print("FNB.pdf not found in the script directory")

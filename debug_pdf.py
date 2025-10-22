@@ -46,9 +46,6 @@ def debug_pdf_structure(pdf_path):
             if 'Category' in transactions_df.columns:
                 print("\nTransaction categories:")
                 print(transactions_df['Category'].value_counts())
-            
-            if 'Bank' in transactions_df.columns:
-                print(f"\nDetected bank: {transactions_df['Bank'].iloc[0]}")
         
     except Exception as e:
         print(f"❌ Error: {e}")

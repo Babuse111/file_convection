@@ -189,23 +189,13 @@ def extract_bank_statements(pdf_path):
                 if not date_val and not desc_val:
                     continue
                 
-                # Determine bank from filename or description
-                bank = "Unknown"
-                if "fnb" in pdf_path.lower():
-                    bank = "FNB"
-                elif "standard" in pdf_path.lower():
-                    bank = "Standard Bank"
-                elif "absa" in pdf_path.lower() or "absa" in desc_val.lower():
-                    bank = "ABSA"
-                
                 # Create transaction record
                 transaction = {
                     'Date': date_val,
                     'Description': desc_val,
                     'Category': categorize_transaction(desc_val),
                     'Amount': amount_val,
-                    'Balance': balance_val,
-                    'Bank': bank
+                    'Balance': balance_val
                 }
                 
                 all_transactions.append(transaction)
@@ -231,7 +221,6 @@ def save_to_csv(transactions, output_file):
     df['Category'] = df['Category'].fillna('Other')
     df['Amount'] = df['Amount'].fillna('')
     df['Balance'] = df['Balance'].fillna('')
-    df['Bank'] = df['Bank'].fillna('Unknown')
     
     # Remove completely empty rows
     df = df[~((df['Date'] == '') & (df['Description'] == '') & (df['Amount'] == ''))]

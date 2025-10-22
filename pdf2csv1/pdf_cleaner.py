@@ -190,21 +190,6 @@ def extract_transaction_data(df_list, bank_type="auto"):
     
     all_transactions = []
     
-    # Detect bank type if auto
-    if bank_type == "auto":
-        all_text = ""
-        for df in df_list:
-            all_text += str(df).lower()
-        
-        if 'fnb' in all_text:
-            bank_type = 'FNB'
-        elif 'standard' in all_text:
-            bank_type = 'Standard Bank'
-        elif 'absa' in all_text:
-            bank_type = 'ABSA'
-        else:
-            bank_type = 'Unknown'
-    
     for i, df in enumerate(df_list):
         if df.empty:
             continue
@@ -272,8 +257,7 @@ def extract_transaction_data(df_list, bank_type="auto"):
                     'Description': description,
                     'Category': categorize_transaction(description),
                     'Amount': amount_val,
-                    'Balance': balance_val if balance_val else '',
-                    'Bank': bank_type
+                    'Balance': balance_val if balance_val else ''
                 }
                 all_transactions.append(transaction)
     
@@ -310,8 +294,7 @@ def extract_transaction_data(df_list, bank_type="auto"):
                         'Description': description,
                         'Category': categorize_transaction(description),
                         'Amount': amount_found,
-                        'Balance': '',
-                        'Bank': bank_type
+                        'Balance': ''
                     }
                     all_transactions.append(transaction)
     
@@ -347,8 +330,7 @@ def process_pdf(pdf_path):
             'Description': 'PDF format may not be supported',
             'Category': 'Error',
             'Amount': 0.0,
-            'Balance': '',
-            'Bank': 'Unknown'
+            'Balance': ''
         }]
     
     return transactions
@@ -364,5 +346,9 @@ if __name__ == "__main__":
     
     if os.path.exists(fnb_path):
         print("=== Testing FNB Statement ===")
-        process_pdf_to_clean_csv(fnb_path, fnb_csv, "fnb")
-    
+        transactions = process_pdf(fnb_path)
+        
+        # Create DataFrame and save
+        df = pd.DataFrame(transactions)
+        df.to_csv(fnb_csv, index=False)
+        print(f"Saved {len(df)} transactions to {fnb_csv}")
