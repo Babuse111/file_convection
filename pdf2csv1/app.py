@@ -1,6 +1,5 @@
 from flask import Flask, request, render_template, send_from_directory, flash, redirect, url_for, jsonify
 import os
-import tabula
 import pandas as pd
 from werkzeug.utils import secure_filename
 import zipfile
@@ -27,36 +26,6 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def clean_amount(amount_str):
-    """Clean and convert amount strings to float"""
-    if pd.isna(amount_str) or amount_str == '':
-        return None
-    
-    # Convert to string and clean
-    amount_str = str(amount_str).strip()
-    
-    # Remove 'R' and other currency symbols
-    amount_str = re.sub(r'[R$€£]', '', amount_str)
-    
-    # Handle negative amounts in parentheses or with minus sign
-    if '(' in amount_str and ')' in amount_str:
-        amount_str = '-' + re.sub(r'[()]', '', amount_str)
-    
-    # Remove spaces and commas
-    amount_str = re.sub(r'[\s,]', '', amount_str)
-    
-    # Try to convert to float
-    try:
-        return float(amount_str)
-    except:
-        return None
-
-def extract_transaction_data(df_list, bank_type="auto"):
-    """Extract and clean transaction data from the messy PDF data"""
-    # Import the improved extraction function from pdf_cleaner
-    import pdf_cleaner
-    return pdf_cleaner.extract_transaction_data(df_list, bank_type)
-
 def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
     """Convert PDF to CSV and return the output file path"""
     try:
@@ -67,23 +36,35 @@ def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
         filename = os.path.splitext(os.path.basename(pdf_path))[0]
         csv_path = os.path.join(output_folder, f"{filename}.csv")
         
-        # Use the updated pdf_cleaner
+        # Use the updated pdf_cleaner - only extract what's actually in the PDF
         import pdf_cleaner
         transactions = pdf_cleaner.process_pdf(pdf_path)
         
         if not transactions:
             raise Exception("No transactions found in PDF")
         
-        # Create DataFrame with proper structure
+        # Create DataFrame with only the data that exists
         df = pd.DataFrame(transactions)
         
-        # Sort by date
+        # Ensure we only have the columns we want: Date, Description, Category, Amount, Balance
+        expected_columns = ['Date', 'Description', 'Category', 'Amount', 'Balance']
+        for col in expected_columns:
+            if col not in df.columns:
+                df[col] = ''
+        
+        # Keep only the expected columns in the right order
+        df = df[expected_columns]
+        
+        # Sort by date if possible
         try:
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
             df = df.sort_values('Date')
             df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
         except:
             pass
+        
+        # Remove completely empty rows
+        df = df[~((df['Date'] == '') & (df['Description'] == '') & (df['Amount'] == ''))]
         
         # Remove duplicates
         df = df.drop_duplicates()
@@ -130,14 +111,13 @@ def upload_files():
                 upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(upload_path)
                 
-                # Process PDF to CSV with selected bank type
-                csv_path, row_count = process_pdf_to_csv(upload_path, batch_output_folder, bank_type)
+                # Process PDF to CSV - extract only what's in the PDF
+                csv_path, row_count = process_pdf_to_csv(upload_path, batch_output_folder)
                 
                 successful_uploads.append({
                     'filename': filename,
                     'csv_file': os.path.basename(csv_path),
-                    'rows': row_count,
-                    'bank_type': bank_type
+                    'rows': row_count
                 })
                 
                 # Clean up uploaded file
@@ -172,8 +152,7 @@ def upload_files():
                          successful_uploads=successful_uploads,
                          failed_uploads=failed_uploads,
                          batch_folder=f"batch_{timestamp}",
-                         zip_file=zip_filename if successful_uploads else None,
-                         bank_type=bank_type)
+                         zip_file=zip_filename if successful_uploads else None)
 
 @app.route('/download/<path:filename>')
 def download_file(filename):
