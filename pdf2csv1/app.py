@@ -46,8 +46,8 @@ def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
         # Create DataFrame with only the data that exists
         df = pd.DataFrame(transactions)
         
-        # Ensure we only have the columns we want: Date, Description, Category, Amount, Balance
-        expected_columns = ['Date', 'Description', 'Category', 'Amount', 'Balance']
+        # Ensure we only have the columns we want: Date, Description, Amount
+        expected_columns = ['Date', 'Description', 'Amount']
         for col in expected_columns:
             if col not in df.columns:
                 df[col] = ''

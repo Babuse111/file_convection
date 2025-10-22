@@ -1,4 +1,4 @@
-# Enhanced Debug script - JAVA-FREE VERSION with ABSA support
+# Enhanced Debug script - JAVA-FREE VERSION with simplified output
 import os
 import pandas as pd
 
@@ -9,6 +9,7 @@ def debug_pdf_structure(pdf_path):
     print(f"\n{'='*60}")
     print(f"DEBUGGING: {os.path.basename(pdf_path)}")
     print(f"Using enhanced PDFplumber extraction (no Java required)")
+    print(f"Output: Date, Description, Amount only")
     print(f"{'='*60}")
     
     try:
@@ -43,9 +44,8 @@ def debug_pdf_structure(pdf_path):
             print("\nSample transactions:")
             print(transactions_df.head())
             
-            if 'Category' in transactions_df.columns:
-                print("\nTransaction categories:")
-                print(transactions_df['Category'].value_counts())
+            print(f"\nColumns in output: {transactions_df.columns.tolist()}")
+            print("✅ Output format: Date, Description, Amount")
         
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
     print("🚀 Enhanced PDF Debug Tool")
-    print("Java-free version with ABSA support using PDFplumber")
+    print("Java-free version with simplified output")
     print("🔍 Testing enhanced extraction methods...")
     
     # Test files to debug
@@ -75,5 +75,5 @@ if __name__ == "__main__":
     
     print(f"\n{'='*60}")
     print("✅ Enhanced debug completed - No Java required!")
-    print("All extraction methods tested with ABSA compatibility")
+    print("Output format: Date, Description, Amount only")
     print(f"{'='*60}")

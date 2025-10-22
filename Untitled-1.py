@@ -1,8 +1,6 @@
 # Import the required Module - ENHANCED JAVA-FREE VERSION
-import os
 import pandas as pd
-import pdfplumber
-import re
+import os
 
 # Get the directory where this script is located
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +10,7 @@ csv_path = os.path.join(script_dir, "FNB.csv")
 # Import the enhanced extraction functions
 import pdf_cleaner
 
-print("🚀 Enhanced PDF to CSV Converter - Java-free with ABSA support")
+print("🚀 Enhanced PDF to CSV Converter - Java-free with simplified output")
 print("=" * 60)
 
 # Read a PDF File using enhanced PDFplumber extraction
@@ -29,6 +27,15 @@ try:
     transactions_df = pdf_cleaner.extract_transaction_data(df_list, "auto")
     
     print(f"Found {len(transactions_df)} transactions")
+    
+    # Ensure we only have the columns we want: Date, Description, Amount
+    expected_columns = ['Date', 'Description', 'Amount']
+    for col in expected_columns:
+        if col not in transactions_df.columns:
+            transactions_df[col] = ''
+    
+    # Keep only the expected columns in the right order
+    transactions_df = transactions_df[expected_columns]
     
     # Sort by date if possible
     try:
@@ -50,10 +57,6 @@ try:
     
     print("\n📋 First few transactions:")
     print(transactions_df.head())
-    
-    print("\n🎯 Transaction categories:")
-    if 'Category' in transactions_df.columns:
-        print(transactions_df['Category'].value_counts())
     
 except Exception as e:
     print(f"❌ Error: {str(e)}")

@@ -76,32 +76,6 @@ def parse_date(date_str):
     
     return date_str
 
-def categorize_transaction(description):
-    """Categorize transaction based on description"""
-    if pd.isna(description):
-        return "Other"
-    
-    desc = str(description).lower()
-    
-    # Define category mappings
-    categories = {
-        'Transfer': ['transfer', 'payment received', 'cash sent', 'immediate payment', 'external payment'],
-        'Groceries': ['shoprite', 'checkers', 'pick n pay', 'woolworths', 'boxer', 'superspar', 'spar'],
-        'Fuel': ['engen', 'shell', 'total', 'garage', 'fuel'],
-        'Cash': ['cash withdrawal', 'cash deposit', 'atm'],
-        'Cellphone': ['vodacom', 'mtn', 'telkom', 'cellphone'],
-        'Banking': ['account admin fee', 'atm', 'balance enquiry'],
-        'Insurance': ['capfuneral', 'funeral cover'],
-        'Utilities': ['electricity', 'dstv'],
-        'Other': ['betting', 'lotto', 'powerball']
-    }
-    
-    for category, keywords in categories.items():
-        if any(keyword in desc for keyword in keywords):
-            return category
-    
-    return "Other"
-
 def extract_bank_statements(pdf_path):
     """Extract bank statement data and convert to standardized CSV format"""
     print(f"\n=== Processing {pdf_path} ===")
@@ -129,7 +103,6 @@ def extract_bank_statements(pdf_path):
             date_col = None
             desc_col = None
             amount_col = None
-            balance_col = None
             
             # Find columns by analyzing content
             for col_idx, col in enumerate(df.columns):
@@ -145,11 +118,9 @@ def extract_bank_statements(pdf_path):
                 if any(re.search(amount_pattern, str(val)) for val in sample_data):
                     if amount_col is None:
                         amount_col = col
-                    else:
-                        balance_col = col
                 
                 # Description column (usually contains text)
-                if col_idx > 0 and date_col is not None and col != date_col and col != amount_col and col != balance_col:
+                if col_idx > 0 and date_col is not None and col != date_col and col != amount_col:
                     if desc_col is None:
                         desc_col = col
             
@@ -169,21 +140,16 @@ def extract_bank_statements(pdf_path):
                 if not desc_val or desc_val == "nan":
                     text_parts = []
                     for col in df.columns:
-                        if col != date_col and col != amount_col and col != balance_col:
+                        if col != date_col and col != amount_col:
                             val = str(row[col]) if not pd.isna(row[col]) else ""
                             if val and val != "nan":
                                 text_parts.append(val)
                     desc_val = " ".join(text_parts)
                 
-                # Extract amounts
+                # Extract amount
                 amount_val = None
-                balance_val = None
-                
                 if amount_col is not None:
                     amount_val = clean_amount(row[amount_col])
-                
-                if balance_col is not None:
-                    balance_val = clean_amount(row[balance_col])
                 
                 # Skip empty rows
                 if not date_val and not desc_val:
@@ -193,9 +159,7 @@ def extract_bank_statements(pdf_path):
                 transaction = {
                     'Date': date_val,
                     'Description': desc_val,
-                    'Category': categorize_transaction(desc_val),
-                    'Amount': amount_val,
-                    'Balance': balance_val
+                    'Amount': amount_val
                 }
                 
                 all_transactions.append(transaction)
@@ -218,9 +182,7 @@ def save_to_csv(transactions, output_file):
     # Clean and format data
     df['Date'] = df['Date'].fillna('')
     df['Description'] = df['Description'].fillna('')
-    df['Category'] = df['Category'].fillna('Other')
     df['Amount'] = df['Amount'].fillna('')
-    df['Balance'] = df['Balance'].fillna('')
     
     # Remove completely empty rows
     df = df[~((df['Date'] == '') & (df['Description'] == '') & (df['Amount'] == ''))]

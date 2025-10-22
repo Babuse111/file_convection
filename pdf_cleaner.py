@@ -229,7 +229,7 @@ def clean_amount(amount_str):
         return None
 
 def extract_transaction_data(df_list, bank_type="auto"):
-    """Extract and clean transaction data from the PDF data - Enhanced for ABSA"""
+    """Extract and clean transaction data from the PDF data - Only Date, Description, Amount"""
     print(f"Extracting transaction data for {len(df_list)} tables")
     
     all_transactions = []
@@ -256,31 +256,22 @@ def extract_transaction_data(df_list, bank_type="auto"):
                 description_match = re.search(r'\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+(.+?)\s+[\d\-\.,R]+\s*$', row_text)
                 description = description_match.group(1).strip() if description_match else "Unknown Transaction"
                 
-                # Extract amount (last number in the row)
+                # Extract amount (first valid amount found)
                 amounts = re.findall(r'[\d\-\.,]+', row_text)
                 amount = None
-                balance = None
                 
                 if amounts:
-                    for amt in reversed(amounts):  # Check from the end
+                    for amt in amounts:  # Check all amounts
                         cleaned_amt = clean_amount(amt)
                         if cleaned_amt is not None:
-                            if amount is None:
-                                amount = cleaned_amt
-                            elif balance is None:
-                                balance = cleaned_amt
-                                break
+                            amount = cleaned_amt
+                            break  # Take the first valid amount
                 
                 if amount is not None:
-                    # Categorize transaction
-                    category = categorize_transaction(description)
-                    
                     all_transactions.append({
                         'Date': date_str,
                         'Description': description,
-                        'Category': category,
-                        'Amount': amount,
-                        'Balance': balance if balance else ''
+                        'Amount': amount
                     })
     
     print(f"Extracted {len(all_transactions)} transactions")
@@ -290,37 +281,10 @@ def extract_transaction_data(df_list, bank_type="auto"):
         all_transactions.append({
             'Date': 'No transactions found',
             'Description': 'PDF format may not be supported',
-            'Category': 'Error',
-            'Amount': 0.0,
-            'Balance': ''
+            'Amount': 0.0
         })
     
     return pd.DataFrame(all_transactions)
-
-def categorize_transaction(description):
-    """Categorize transaction based on description"""
-    description_lower = description.lower()
-    
-    # Define categories and their keywords
-    categories = {
-        'Groceries': ['woolworths', 'pick n pay', 'checkers', 'spar', 'shoprite', 'makro'],
-        'Fuel': ['shell', 'bp', 'sasol', 'engen', 'total', 'fuel'],
-        'Banking': ['bank charge', 'atm', 'card fee', 'service fee', 'monthly fee'],
-        'Utilities': ['electricity', 'water', 'municipal', 'rates', 'eskom'],
-        'Insurance': ['insurance', 'assurance', 'cover', 'premium'],
-        'Investment': ['investment', 'unit trust', 'shares', 'dividend'],
-        'Transfer': ['transfer', 'payment', 'eft', 'online'],
-        'Cash': ['cash withdrawal', 'atm withdrawal', 'cash'],
-        'Debit Order': ['debit order', 'stop order', 'recurring'],
-        'Salary': ['salary', 'wages', 'income', 'remuneration'],
-        'Interest': ['interest', 'credit interest']
-    }
-    
-    for category, keywords in categories.items():
-        if any(keyword in description_lower for keyword in keywords):
-            return category
-    
-    return 'Other'
 
 def process_pdf(pdf_path):
     """Main function to process PDF and return transaction data"""
@@ -346,9 +310,7 @@ def process_pdf(pdf_path):
         transactions = [{
             'Date': 'No data found',
             'Description': 'PDF format may not be supported',
-            'Category': 'Error',
-            'Amount': 0.0,
-            'Balance': ''
+            'Amount': 0.0
         }]
     
     return transactions
