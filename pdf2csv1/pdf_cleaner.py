@@ -1,343 +1,357 @@
 # Import the required Module
-import tabula
 import pandas as pd
 import os
 import re
 from datetime import datetime
 
-# Set environment variable to force subprocess mode (more reliable on Windows)
-os.environ["TABULA_JAVA"] = "subprocess"
+# Try both extraction methods
+try:
+    import tabula
+    TABULA_AVAILABLE = True
+    os.environ["TABULA_JAVA"] = "subprocess"
+except ImportError:
+    TABULA_AVAILABLE = False
+
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
 
 def clean_amount(amount_str):
     """Clean and convert amount strings to float"""
-    if pd.isna(amount_str) or amount_str == '':
+    if pd.isna(amount_str) or amount_str == '' or str(amount_str).lower() == 'nan':
         return None
     
     # Convert to string and clean
     amount_str = str(amount_str).strip()
     
-    # Remove 'R' and other currency symbols
+    # Remove currency symbols
     amount_str = re.sub(r'[R$€£]', '', amount_str)
     
-    # Handle negative amounts in parentheses or with minus sign
+    # Handle negative amounts in parentheses
     if '(' in amount_str and ')' in amount_str:
         amount_str = '-' + re.sub(r'[()]', '', amount_str)
     
     # Remove spaces and commas
     amount_str = re.sub(r'[\s,]', '', amount_str)
     
-    # Try to convert to float
     try:
-        return float(amount_str)
+        return float(amount_str) if amount_str else None
     except:
         return None
 
-def clean_date(date_str):
-    """Clean and standardize date format"""
-    if pd.isna(date_str) or date_str == '':
+def parse_date(date_str):
+    """Parse date string to DD/MM/YYYY format"""
+    if pd.isna(date_str) or date_str == '' or str(date_str).lower() == 'nan':
         return None
     
     date_str = str(date_str).strip()
     
-    # Handle FNB format "13 Dec" - assume current year or previous year
+    # Handle different date formats
+    date_formats = [
+        '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%d %m %Y', '%d.%m.%Y',
+        '%d/%m/%y', '%d-%m-%y', '%y-%m-%d'
+    ]
+    
+    # Handle "13 Dec" format (assume 2023/2024)
     month_names = {
-        'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-        'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
+        'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
     }
     
-    # Try FNB format: "13 Dec"
-    fnb_match = re.search(r'(\d{1,2})\s+(\w{3})', date_str)
-    if fnb_match:
-        day = fnb_match.group(1).zfill(2)
-        month_abbr = fnb_match.group(2)
+    month_match = re.search(r'(\d{1,2})\s+(\w{3})', date_str.lower())
+    if month_match:
+        day = month_match.group(1).zfill(2)
+        month_abbr = month_match.group(2)
         if month_abbr in month_names:
-            month = month_names[month_abbr]
-            # Use 2024 as default year for FNB statements
-            return f"{day}/{month}/2024"
+            return f"{day}/{month_names[month_abbr]}/2023"
     
-    # Remove any non-date characters at the beginning
-    date_str = re.sub(r'^[^\d/]*', '', date_str)
+    # Try standard formats
+    for fmt in date_formats:
+        try:
+            parsed_date = datetime.strptime(date_str, fmt)
+            return parsed_date.strftime('%d/%m/%Y')
+        except:
+            continue
     
-    # Extract date pattern (dd/mm/yyyy or d/mm/yyyy)
-    date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', date_str)
-    if date_match:
-        return date_match.group(1)
-    
-    return None
+    return date_str
 
-def extract_universal_transactions(df_list):
-    """Universal transaction extractor that works with most bank formats"""
+def categorize_transaction(description):
+    """Categorize transaction based on description"""
+    if pd.isna(description):
+        return "Other"
+    
+    desc = str(description).lower()
+    
+    categories = {
+        'Transfer': ['transfer', 'payment received', 'cash sent', 'immediate payment', 'external payment', 'eft'],
+        'Groceries': ['shoprite', 'checkers', 'pick n pay', 'woolworths', 'boxer', 'superspar', 'spar'],
+        'Fuel': ['engen', 'shell', 'total', 'garage', 'fuel', 'bp', 'sasol'],
+        'Cash': ['cash withdrawal', 'cash deposit', 'atm'],
+        'Cellphone': ['vodacom', 'mtn', 'telkom', 'cellphone', 'airtime'],
+        'Banking': ['account admin fee', 'atm', 'balance enquiry', 'service fee', 'notification fee'],
+        'Insurance': ['capfuneral', 'funeral cover', 'insurance'],
+        'Utilities': ['electricity', 'dstv', 'municipal', 'rates'],
+        'Other': ['betting', 'lotto', 'powerball', 'daily lotto']
+    }
+    
+    for category, keywords in categories.items():
+        if any(keyword in desc for keyword in keywords):
+            return category
+    
+    return "Other"
+
+def extract_with_tabula(pdf_path):
+    """Extract using tabula-py"""
+    if not TABULA_AVAILABLE:
+        return []
+    
+    try:
+        df_list = tabula.read_pdf(
+            pdf_path, 
+            pages='all', 
+            multiple_tables=True,
+            force_subprocess=True
+        )
+        return df_list
+    except Exception as e:
+        print(f"Tabula extraction failed: {e}")
+        return []
+
+def extract_with_pdfplumber(pdf_path):
+    """Extract using pdfplumber"""
+    if not PDFPLUMBER_AVAILABLE:
+        return []
+    
+    try:
+        all_tables = []
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                # Extract tables
+                tables = page.extract_tables()
+                for table in tables:
+                    if table and len(table) > 1:
+                        df = pd.DataFrame(table[1:], columns=table[0] if table[0] else None)
+                        if not df.empty:
+                            all_tables.append(df)
+                
+                # Also extract from text
+                text = page.extract_text()
+                if text:
+                    text_df = extract_from_text(text)
+                    if not text_df.empty:
+                        all_tables.append(text_df)
+        
+        return all_tables
+    except Exception as e:
+        print(f"PDFplumber extraction failed: {e}")
+        return []
+
+def extract_from_text(text):
+    """Extract transactions from plain text"""
+    lines = text.split('\n')
+    transactions = []
+    
+    for line in lines:
+        line = line.strip()
+        if len(line) < 10:
+            continue
+        
+        # Look for date patterns
+        date_match = re.search(r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', line)
+        if not date_match:
+            date_match = re.search(r'(\d{1,2}\s+\w{3})', line)
+        
+        if date_match:
+            date_str = date_match.group(1)
+            
+            # Look for amounts
+            amounts = re.findall(r'[\d,]+\.\d{2}', line)
+            if amounts:
+                # Extract description
+                desc = line
+                desc = re.sub(r'\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}', '', desc)
+                desc = re.sub(r'\d{1,2}\s+\w{3}', '', desc)
+                desc = re.sub(r'[\d,]+\.\d{2}', '', desc)
+                desc = re.sub(r'\s+', ' ', desc).strip()
+                
+                if len(desc) > 2:
+                    transactions.append([date_str, desc, amounts[-1]])
+    
+    if transactions:
+        return pd.DataFrame(transactions, columns=['Date', 'Description', 'Amount'])
+    
+    return pd.DataFrame()
+
+def extract_transaction_data(df_list, bank_type="auto"):
+    """Extract transaction data and format for CSV output"""
+    print(f"Processing {len(df_list)} tables/data sources")
+    
     all_transactions = []
     
-    for df in df_list:
-        # Convert all columns to string for processing
+    # Detect bank type if auto
+    if bank_type == "auto":
+        all_text = ""
+        for df in df_list:
+            all_text += str(df).lower()
+        
+        if 'fnb' in all_text:
+            bank_type = 'FNB'
+        elif 'standard' in all_text:
+            bank_type = 'Standard Bank'
+        elif 'absa' in all_text:
+            bank_type = 'ABSA'
+        else:
+            bank_type = 'Unknown'
+    
+    for i, df in enumerate(df_list):
+        if df.empty:
+            continue
+        
+        print(f"Processing table {i+1} with shape {df.shape}")
+        
+        # Convert to string for processing
         df = df.astype(str)
         
-        # Check if this looks like a proper transaction table
-        # Look for date patterns in columns or data
-        has_date_data = False
-        
-        # Check column names for dates
-        date_columns = []
-        for col in df.columns:
-            if re.search(r'\d{1,2}/\d{1,2}/\d{4}', str(col)):
-                date_columns.append(col)
-                has_date_data = True
-        
-        # If we have date columns, process them differently
-        if date_columns:
-            # This is likely a table where dates are column headers
-            for col in date_columns:
-                col_data = df[col].dropna()
-                for idx, value in col_data.items():
-                    value_str = str(value)
-                    if value_str != 'nan' and len(value_str) > 2:
-                        # Extract description and amount from the value
-                        # Look for description patterns
-                        desc_match = re.search(r'^([A-Za-z][A-Za-z\s]*)', value_str)
-                        description = desc_match.group(1).strip() if desc_match else value_str[:20]
-                        
-                        # Look for amounts
-                        amounts = re.findall(r'[-+]?[R]?[\d,]+\.?\d*', value_str)
-                        cleaned_amounts = []
-                        for amount in amounts:
-                            cleaned = clean_amount(amount)
-                            if cleaned is not None:
-                                cleaned_amounts.append(cleaned)
-                        
-                        money_in = None
-                        money_out = None
-                        
-                        if cleaned_amounts:
-                            if cleaned_amounts[0] < 0:
-                                money_out = abs(cleaned_amounts[0])
-                            else:
-                                money_in = cleaned_amounts[0]
-                        
-                        if description and (money_in or money_out):
-                            all_transactions.append({
-                                'Date': col,
-                                'Description': description,
-                                'Category': categorize_transaction(description),
-                                'Money In': money_in,
-                                'Money Out': money_out,
-                                'Fee*': None,
-                                'Balance': None
-                            })
-        
-        # Also check for rows with date patterns
-        for index, row in df.iterrows():
-            row_cells = [str(cell).strip() for cell in row if str(cell) != 'nan' and str(cell).strip() != '']
-            if not row_cells:
+        # Process each row
+        for idx, row in df.iterrows():
+            row_text = ' '.join([str(cell) for cell in row if str(cell) != 'nan'])
+            
+            if len(row_text) < 10:
                 continue
-                
-            row_text = ' '.join(row_cells)
             
-            # Skip header-like rows but be less restrictive
-            if len(row_text) < 8:
-                continue
-                
-            # Look for date patterns
-            date_patterns = [
-                r'(\d{1,2}/\d{1,2}/\d{4})',     # dd/mm/yyyy
-                r'(\d{4}/\d{1,2}/\d{1,2})',     # yyyy/mm/dd
-                r'(\d{1,2}\s+\w{3})',           # dd Mon (FNB format)
-                r'(\d{1,2}-\d{1,2}-\d{4})',     # dd-mm-yyyy
-            ]
+            # Extract date
+            date_val = None
+            date_match = re.search(r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', row_text)
+            if not date_match:
+                date_match = re.search(r'(\d{1,2}\s+\w{3})', row_text)
             
-            date = None
-            for pattern in date_patterns:
-                date_match = re.search(pattern, row_text)
-                if date_match:
-                    raw_date = date_match.group(1)
-                    date = clean_date(raw_date)
-                    if date:
-                        break
+            if date_match:
+                date_val = parse_date(date_match.group(1))
             
-            if not date:
+            if not date_val:
                 continue
             
             # Extract description
-            description = ''
+            description = ""
+            # Remove date from text
+            desc_text = row_text
+            desc_text = re.sub(r'\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}', '', desc_text)
+            desc_text = re.sub(r'\d{1,2}\s+\w{3}', '', desc_text)
             
-            # Method 1: Look for text between date and amount
-            after_date = re.split(r'\d{1,2}[/\-]\d{1,2}[/\-]\d{4}|\d{4}[/\-]\d{1,2}[/\-]\d{1,2}|\d{1,2}\s+\w{3}', row_text)
-            if len(after_date) > 1:
-                desc_part = after_date[1].strip()
-                # Find description before first amount
-                parts = desc_part.split()
-                desc_words = []
-                for word in parts:
-                    # Stop at first amount-like word
-                    if re.match(r'^[-+]?[R]?[\d,]+', word) or re.match(r'^\d+\.\d+', word):
-                        break
-                    if re.match(r'^[A-Za-z]', word):  # Keep alphabetic words
-                        desc_words.append(word)
-                description = ' '.join(desc_words)
+            # Remove amounts to isolate description
+            desc_text = re.sub(r'[\d,]+\.\d{2}', '', desc_text)
+            desc_text = re.sub(r'\s+', ' ', desc_text).strip()
             
-            # Method 2: If no description found, try to extract from row cells
-            if not description:
-                for cell in row_cells:
-                    if len(cell) > 3 and re.match(r'^[A-Za-z]', cell) and not re.search(r'\d', cell):
-                        description = cell
-                        break
-            
-            # Clean description
-            description = re.sub(r'\s+', ' ', description).strip()
+            if len(desc_text) > 2:
+                description = desc_text
             
             # Extract amounts
-            amounts = re.findall(r'[-+]?[R]?[\d,]+\.?\d*', row_text)
+            amounts = re.findall(r'[\d,]+\.\d{2}', row_text)
+            amount_val = None
+            balance_val = None
             
-            cleaned_amounts = []
-            for amount in amounts:
-                cleaned = clean_amount(amount)
-                if cleaned is not None and abs(cleaned) > 0.01:
-                    cleaned_amounts.append(cleaned)
-            
-            money_in = None
-            money_out = None
-            balance = None
-            
-            if cleaned_amounts:
-                # Simple logic: negative = out, positive = in
-                for amount in cleaned_amounts:
-                    if amount < 0:
-                        money_out = abs(amount)
-                    else:
-                        money_in = amount
-                        
-                # Last amount could be balance
-                if len(cleaned_amounts) > 1:
-                    balance = cleaned_amounts[-1]
+            if amounts:
+                # Clean amounts
+                cleaned_amounts = []
+                for amt in amounts:
+                    cleaned = clean_amount(amt)
+                    if cleaned is not None:
+                        cleaned_amounts.append(cleaned)
+                
+                if cleaned_amounts:
+                    amount_val = cleaned_amounts[0]
+                    if len(cleaned_amounts) > 1:
+                        balance_val = cleaned_amounts[-1]
             
             # Only add if we have meaningful data
-            if date and description and len(description) > 1:
-                category = categorize_transaction(description)
-                
-                all_transactions.append({
-                    'Date': date,
+            if date_val and description and amount_val is not None:
+                transaction = {
+                    'Date': date_val,
                     'Description': description,
-                    'Category': category,
-                    'Money In': money_in,
-                    'Money Out': money_out,
-                    'Fee*': None,
-                    'Balance': balance
-                })
+                    'Category': categorize_transaction(description),
+                    'Amount': amount_val,
+                    'Balance': balance_val if balance_val else '',
+                    'Bank': bank_type
+                }
+                all_transactions.append(transaction)
+    
+    print(f"Extracted {len(all_transactions)} transactions")
+    
+    # If no transactions found, try alternative extraction
+    if not all_transactions and df_list:
+        print("Trying alternative extraction method...")
+        for df in df_list:
+            # Look for any rows with date and amount patterns
+            for idx, row in df.iterrows():
+                row_values = [str(val) for val in row if str(val) != 'nan']
+                
+                # Find date and amount in any position
+                date_found = None
+                amount_found = None
+                desc_parts = []
+                
+                for val in row_values:
+                    # Check for date
+                    if re.search(r'\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}', val) or re.search(r'\d{1,2}\s+\w{3}', val):
+                        date_found = parse_date(val)
+                    # Check for amount
+                    elif re.search(r'[\d,]+\.\d{2}', val):
+                        amount_found = clean_amount(val)
+                    # Collect description parts
+                    elif len(val) > 2 and not re.search(r'^\d+$', val):
+                        desc_parts.append(val)
+                
+                if date_found and amount_found and desc_parts:
+                    description = ' '.join(desc_parts)
+                    transaction = {
+                        'Date': date_found,
+                        'Description': description,
+                        'Category': categorize_transaction(description),
+                        'Amount': amount_found,
+                        'Balance': '',
+                        'Bank': bank_type
+                    }
+                    all_transactions.append(transaction)
     
     return all_transactions
 
-def extract_fnb_transactions(df_list):
-    """Extract transactions specifically for FNB statements"""
-    return extract_universal_transactions(df_list)
-
-def extract_standard_bank_transactions(df_list):
-    """Extract transactions specifically for Standard Bank statements"""
-    return extract_universal_transactions(df_list)
-
-def extract_absa_transactions(df_list):
-    """Extract transactions specifically for ABSA statements"""  
-    return extract_universal_transactions(df_list)
-
-def extract_capitec_transactions(df_list):
-    """Extract transactions specifically for Capitec statements"""
-    return extract_universal_transactions(df_list)
-
-def extract_nedbank_transactions(df_list):
-    """Extract transactions specifically for Nedbank statements"""
-    return extract_universal_transactions(df_list)
-
-def categorize_transaction(description):
-    """Categorize transactions based on description"""
-    category_patterns = {
-        'Cash Deposit': ['Cash Deposit', 'ATM Cash Deposit'],
-        'Groceries': ['Shoprite', 'Pick n Pay', 'Checkers', 'Boxer', 'Woolworths', 'Spar'],
-        'Fuel': ['Shell', 'BP', 'Engen', 'Sasol', 'Caltex'],
-        'Clothing & Shoes': ['Clothing', 'Pick n Pay Clothing', 'Pep Stores', 'Mr Price', 'Edgars'],
-        'Betting/Lottery': ['Lotto', 'PowerBall', 'Daily Lotto', 'Betway', 'Betting'],
-        'Cellphone': ['VODACOM', 'MTN', 'Cell C', 'Telkom Mobile', 'Airtime'],
-        'Digital Payments': ['Banking App', 'Immediate Payment', 'EFT', 'Online Payment'],
-        'Fees': ['SMS Notification', 'Admin Fee', 'Transaction Fee', 'Service Fee'],
-        'Personal Care': ['Clicks', 'Dis-Chem', 'Pharmacy'],
-        'Home Improvements': ['BUCO', 'Builders', 'Hardware'],
-        'Funeral Cover': ['Capfuneral', 'Funeral'],
-        'Savings': ['Stash By Liberty', 'Investment', 'Savings'],
-        'Transfer': ['Transfer', 'Round-up'],
-        'Other Income': ['Payment Received', 'Salary', 'Income']
-    }
+def process_pdf(pdf_path):
+    """Main function to process PDF and return transaction data"""
+    print(f"Processing PDF: {pdf_path}")
     
-    for cat, patterns in category_patterns.items():
-        if any(pattern.lower() in description.lower() for pattern in patterns):
-            return cat
+    # Try both extraction methods
+    df_list = []
     
-    return 'Uncategorised'
-
-def extract_transaction_data(df_list, bank_type="auto"):
-    """Extract and clean transaction data based on bank type"""
-    # All banks now use the universal extractor for better compatibility
-    bank_type_lower = bank_type.lower()
+    # First try tabula
+    if TABULA_AVAILABLE:
+        print("Trying tabula extraction...")
+        df_list = extract_with_tabula(pdf_path)
     
-    if bank_type_lower in ["fnb", "first national bank"]:
-        return extract_fnb_transactions(df_list)
-    elif bank_type_lower in ["standard bank", "standard"]:
-        return extract_standard_bank_transactions(df_list)
-    elif bank_type_lower in ["absa", "absa bank"]:
-        return extract_absa_transactions(df_list)
-    elif bank_type_lower in ["capitec", "capitec bank"]:
-        return extract_capitec_transactions(df_list)
-    elif bank_type_lower in ["nedbank", "ned bank"]:
-        return extract_nedbank_transactions(df_list)
-    else:
-        # Auto-detect: use universal extractor
-        return extract_universal_transactions(df_list)
-
-def process_pdf_to_clean_csv(pdf_path, csv_path, bank_type="auto"):
-    """Convert PDF to properly structured CSV"""
-    try:
-        print(f"Processing PDF: {pdf_path}")
-        print(f"Bank Type: {bank_type}")
-        
-        # Read PDF file using subprocess mode
-        df_list = tabula.read_pdf(pdf_path, pages='all', force_subprocess=True)
-        
-        print(f"Extracted {len(df_list)} tables from PDF")
-        
-        # Extract and clean transaction data
-        transactions = extract_transaction_data(df_list, bank_type)
-        
-        print(f"Found {len(transactions)} transactions")
-        
-        if not transactions:
-            print("No transactions found!")
-            return
-        
-        # Create DataFrame with proper structure
-        df = pd.DataFrame(transactions)
-        
-        # Sort by date
-        try:
-            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
-            df = df.sort_values('Date')
-            df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
-        except Exception as e:
-            print(f"Date sorting failed: {e}")
-            pass
-        
-        # Remove duplicates
-        df = df.drop_duplicates()
-        
-        # Save to CSV with proper formatting
-        df.to_csv(csv_path, index=False)
-        
-        print(f"✅ Successfully created clean CSV: {csv_path}")
-        print(f"📊 Total transactions: {len(df)}")
-        print("\n📋 Sample of cleaned data:")
-        print(df.head(10).to_string(index=False))
-        
-        return len(df)
-        
-    except Exception as e:
-        print(f"❌ Error processing PDF: {str(e)}")
-        raise
+    # If tabula fails or not available, try pdfplumber
+    if not df_list and PDFPLUMBER_AVAILABLE:
+        print("Trying pdfplumber extraction...")
+        df_list = extract_with_pdfplumber(pdf_path)
+    
+    if not df_list:
+        raise Exception("No extraction method available or PDF could not be processed")
+    
+    # Extract transactions
+    transactions = extract_transaction_data(df_list)
+    
+    if not transactions:
+        # Create a basic structure if nothing found
+        transactions = [{
+            'Date': 'No data found',
+            'Description': 'PDF format may not be supported',
+            'Category': 'Error',
+            'Amount': 0.0,
+            'Balance': '',
+            'Bank': 'Unknown'
+        }]
+    
+    return transactions
 
 # Main execution
 if __name__ == "__main__":
@@ -352,10 +366,3 @@ if __name__ == "__main__":
         print("=== Testing FNB Statement ===")
         process_pdf_to_clean_csv(fnb_path, fnb_csv, "fnb")
     
-    # Test with Standard Bank (original)
-    standard_path = os.path.join(script_dir, "account_statement (2) (2).pdf")
-    standard_csv = os.path.join(script_dir, "account_statement_cleaned.csv")
-    
-    if os.path.exists(standard_path):
-        print("\n=== Testing Standard Bank Statement ===")
-        process_pdf_to_clean_csv(standard_path, standard_csv, "standard bank")

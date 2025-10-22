@@ -63,18 +63,13 @@ def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
         # Ensure output folder exists
         os.makedirs(output_folder, exist_ok=True)
         
-        # Set environment variable to force subprocess mode
-        os.environ["TABULA_JAVA"] = "subprocess"
-        
         # Get filename without extension
         filename = os.path.splitext(os.path.basename(pdf_path))[0]
         csv_path = os.path.join(output_folder, f"{filename}.csv")
         
-        # Read PDF file using subprocess mode
-        df_list = tabula.read_pdf(pdf_path, pages='all', force_subprocess=True)
-        
-        # Extract and clean transaction data
-        transactions = extract_transaction_data(df_list, bank_type)
+        # Use the updated pdf_cleaner
+        import pdf_cleaner
+        transactions = pdf_cleaner.process_pdf(pdf_path)
         
         if not transactions:
             raise Exception("No transactions found in PDF")
@@ -84,7 +79,7 @@ def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
         
         # Sort by date
         try:
-            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
+            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
             df = df.sort_values('Date')
             df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
         except:
