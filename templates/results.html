@@ -298,8 +298,27 @@
                             <span>{{ result.csv_name }}</span>
                         </div>
                         <div class="detail-row">
-                            <span class="detail-label">🏦 Bank type:</span>
-                            <span>{{ bank_type }}</span>
+                            <span class="detail-label">Preview:</span>
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table border="1" cellpadding="4" style="width:100%;margin-top:10px;">
+                                <thead>
+                                    <tr>
+                                        {% for col in result.columns %}
+                                            <th>{{ col }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in result.preview_rows %}
+                                    <tr>
+                                        {% for col in result.columns %}
+                                            <td>{{ row[col] }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                     <a href="/download/{{ result.csv_name }}" class="download-btn">

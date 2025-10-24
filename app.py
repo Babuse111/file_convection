@@ -74,6 +74,18 @@ def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
         # Remove duplicates
         transactions_df = transactions_df.drop_duplicates()
         
+        # Ensure we only have the columns we want: Date, Description, Amount
+        expected_columns = ['Date', 'Description', 'Amount']
+        for col in expected_columns:
+            if col not in transactions_df.columns:
+                transactions_df[col] = ''
+        # Keep only the expected columns in the right order
+        transactions_df = transactions_df[expected_columns]
+        
+        # Do not modify columns, just use what was extracted
+        # Optionally, drop completely empty columns
+        transactions_df = transactions_df.dropna(axis=1, how='all')
+        
         # Save to CSV with proper formatting
         transactions_df.to_csv(csv_path, index=False)
         
@@ -141,12 +153,15 @@ def upload_files():
                 csv_path, row_count = process_pdf_to_csv(upload_path, OUTPUT_FOLDER, bank_type)
                 csv_filename = os.path.basename(csv_path)
                 
-                results.append({
+                result_dict = {
                     'pdf_name': filename,
-                    'csv_name': csv_filename,
-                    'csv_path': csv_path,
-                    'row_count': row_count
-                })
+                    'csv_name': os.path.basename(csv_path),
+                    'row_count': len(df),
+                    'columns': df.columns.tolist(),
+                    'preview_rows': df.head(5).to_dict(orient='records')
+                }
+                
+                results.append(result_dict)
                 
                 print(f"Successfully processed: {filename} -> {csv_filename} ({row_count} transactions)")
                 
