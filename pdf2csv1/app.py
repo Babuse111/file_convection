@@ -27,53 +27,36 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def process_pdf_to_csv(pdf_path, output_folder, bank_type="auto"):
-    """Convert PDF to CSV and return the output file path"""
+    """Convert PDF to CSV and return the output file path and DataFrame"""
     try:
-        # Ensure output folder exists
         os.makedirs(output_folder, exist_ok=True)
-        
-        # Get filename without extension
         filename = os.path.splitext(os.path.basename(pdf_path))[0]
         csv_path = os.path.join(output_folder, f"{filename}.csv")
-        
-        # Use the updated pdf_cleaner - only extract what's actually in the PDF
-        import pdf_cleaner
+
+        # Use pdf_cleaner to extract transactions (may return list[dict] or DataFrame)
         transactions = pdf_cleaner.process_pdf(pdf_path)
-        
-        if not transactions:
+
+        # Normalize to DataFrame
+        if isinstance(transactions, pd.DataFrame):
+            df = transactions.copy()
+        else:
+            df = pd.DataFrame(transactions)
+
+        if df.empty:
             raise Exception("No transactions found in PDF")
-        
-        # Create DataFrame with only the data that exists
-        df = pd.DataFrame(transactions)
-        
-        # Ensure we only have the columns we want: Date, Description, Amount
-        expected_columns = ['Date', 'Description', 'Amount']
-        for col in expected_columns:
-            if col not in df.columns:
-                df[col] = ''
-        
-        # Keep only the expected columns in the right order
-        df = df[expected_columns]
-        
-        # Sort by date if possible
-        try:
-            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y', errors='coerce')
-            df = df.sort_values('Date')
-            df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
-        except:
-            pass
-        
-        # Remove completely empty rows
-        df = df[~((df['Date'] == '') & (df['Description'] == '') & (df['Amount'] == ''))]
-        
-        # Remove duplicates
-        df = df.drop_duplicates()
-        
-        # Save to CSV with proper formatting
+
+        # Drop columns that are completely empty (don't force specific columns)
+        df = df.dropna(axis=1, how='all')
+
+        # Preserve full digits/format for Amount if present (store as string)
+        if 'Amount' in df.columns:
+            df['Amount'] = df['Amount'].astype(str)
+
+        # Save CSV exactly as extracted
         df.to_csv(csv_path, index=False)
-        
-        return csv_path, len(df)
-    
+
+        return csv_path, len(df), df
+
     except Exception as e:
         raise Exception(f"Error processing PDF: {str(e)}")
 
@@ -86,49 +69,52 @@ def upload_files():
     if 'files[]' not in request.files:
         flash('No file selected')
         return redirect(request.url)
-    
+
     files = request.files.getlist('files[]')
-    bank_type = request.form.get('bank_type', 'auto')  # Get selected bank type
-    
+    bank_type = request.form.get('bank_type', 'auto')
+
     if not files or files[0].filename == '':
         flash('No file selected')
         return redirect(url_for('index'))
-    
+
     successful_uploads = []
     failed_uploads = []
-    
-    # Create a timestamp folder for this batch
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     batch_output_folder = os.path.join(app.config['OUTPUT_FOLDER'], f"batch_{timestamp}")
     os.makedirs(batch_output_folder, exist_ok=True)
-    
+
     for file in files:
         if file and allowed_file(file.filename):
             try:
                 filename = secure_filename(file.filename)
-                
-                # Save uploaded file
                 upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(upload_path)
-                
-                # Process PDF to CSV - extract only what's in the PDF
-                csv_path, row_count = process_pdf_to_csv(upload_path, batch_output_folder)
-                
+
+                csv_path, row_count, df = process_pdf_to_csv(upload_path, batch_output_folder, bank_type=bank_type)
+
+                # Build result dict used by template (columns + preview rows)
+                preview_rows = []
+                try:
+                    preview_rows = df.head(5).fillna('').to_dict(orient='records')
+                except:
+                    preview_rows = []
+
                 successful_uploads.append({
-                    'filename': filename,
-                    'csv_file': os.path.basename(csv_path),
-                    'rows': row_count
+                    'pdf_name': filename,
+                    'csv_name': os.path.basename(csv_path),
+                    'row_count': row_count,
+                    'columns': df.columns.tolist(),
+                    'preview_rows': preview_rows
                 })
-                
-                # Clean up uploaded file
+
                 os.remove(upload_path)
-                
+
             except Exception as e:
                 failed_uploads.append({
                     'filename': file.filename,
                     'error': str(e)
                 })
-                # Clean up uploaded file if it exists
                 upload_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
                 if os.path.exists(upload_path):
                     os.remove(upload_path)
@@ -137,22 +123,24 @@ def upload_files():
                 'filename': file.filename,
                 'error': 'Invalid file type. Only PDF files are allowed.'
             })
-    
-    # Create a zip file with all CSV outputs
+
+    # Create zip of CSVs if any succeeded
+    zip_filename = None
     if successful_uploads:
         zip_filename = f"csv_outputs_{timestamp}.zip"
         zip_path = os.path.join(app.config['OUTPUT_FOLDER'], zip_filename)
-        
         with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for file_info in successful_uploads:
-                csv_file_path = os.path.join(batch_output_folder, file_info['csv_file'])
-                zipf.write(csv_file_path, file_info['csv_file'])
-    
-    return render_template('results.html', 
-                         successful_uploads=successful_uploads,
-                         failed_uploads=failed_uploads,
-                         batch_folder=f"batch_{timestamp}",
-                         zip_file=zip_filename if successful_uploads else None)
+            for info in successful_uploads:
+                csv_file_path = os.path.join(batch_output_folder, info['csv_name'])
+                if os.path.exists(csv_file_path):
+                    zipf.write(csv_file_path, info['csv_name'])
+
+    return render_template('results.html',
+                           results=successful_uploads,
+                           failed_files=failed_uploads,
+                           batch_folder=f"batch_{timestamp}",
+                           zip_filename=zip_filename,
+                           bank_type=bank_type)
 
 @app.route('/download/<path:filename>')
 def download_file(filename):

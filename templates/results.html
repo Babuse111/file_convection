@@ -293,19 +293,23 @@
                         <div class="transaction-count">{{ result.row_count }} transactions</div>
                     </div>
                     <div class="result-details">
-                        <div class="detail-row">
-                            <span class="detail-label">📊 Output file:</span>
-                            <span>{{ result.csv_name }}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <div>
+                                <div style="font-weight:700;">{{ result.pdf_name }}</div>
+                                <div style="font-size:0.9rem; color:#555;">{{ result.row_count }} rows · {{ result.columns|length }} columns</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <a href="/download/{{ result.csv_name }}" class="download-btn" style="text-decoration:none; padding:8px 12px; border-radius:8px; background:#5b7cfa; color:#fff;">⬇️ Download CSV</a>
+                            </div>
                         </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Preview:</span>
-                        </div>
-                        <div style="overflow-x:auto;">
-                            <table border="1" cellpadding="4" style="width:100%;margin-top:10px;">
-                                <thead>
+
+                        {% if result.columns and result.preview_rows %}
+                        <div style="margin-top:14px; overflow:auto; border-radius:8px; border:1px solid #eee;">
+                            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                                <thead style="background:#f7f7f8;">
                                     <tr>
                                         {% for col in result.columns %}
-                                            <th>{{ col }}</th>
+                                        <th style="padding:8px 10px; text-align:left; border-bottom:1px solid #eee;">{{ col }}</th>
                                         {% endfor %}
                                     </tr>
                                 </thead>
@@ -313,17 +317,17 @@
                                     {% for row in result.preview_rows %}
                                     <tr>
                                         {% for col in result.columns %}
-                                            <td>{{ row[col] }}</td>
+                                        <td style="padding:8px 10px; border-bottom:1px solid #f2f2f2; white-space:nowrap;">{{ row[col] }}</td>
                                         {% endfor %}
                                     </tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
                         </div>
+                        {% else %}
+                        <div style="margin-top:12px; color:#666; font-size:0.95rem;">No preview available</div>
+                        {% endif %}
                     </div>
-                    <a href="/download/{{ result.csv_name }}" class="download-btn">
-                        ⬇️ Download CSV
-                    </a>
                 </div>
                 {% endfor %}
             </div>
