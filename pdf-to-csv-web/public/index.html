@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to CSV Converter</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="container">
+      <h1>Convert PDF to CSV</h1>
+      <form id="f" enctype="multipart/form-data">
+        <input type="file" name="file" accept="application/pdf" required />
+        <button type="submit">Upload & Convert</button>
+      </form>
+      <div id="result"></div>
+    </div>
+    <script src="app.js"></script>
+    <script>
+      const form = document.getElementById('f');
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const file = form.querySelector('input[type=file]').files[0];
+        if (!file) return alert('Pick a PDF');
+        const fd = new FormData();
+        fd.append('file', file);
+        const resp = await fetch('/upload', { method: 'POST', body: fd });
+        if (!resp.ok) return alert('Upload failed: ' + resp.statusText);
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name.replace(/\.pdf$/i, '.csv');
+        a.click();
+      });
+    </script>
+  </body>
+</html>
