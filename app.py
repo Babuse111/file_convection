@@ -65,12 +65,12 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 
 # Setup paths
 BASE_DIR = Path(__file__).parent
-UPLOADS = BASE_DIR / "uploads"
-OUTPUTS = BASE_DIR / "outputs"
+UPLOADS = Path(os.getenv('UPLOAD_DIR', BASE_DIR / "uploads"))
+OUTPUTS = Path(os.getenv('OUTPUT_DIR', BASE_DIR / "outputs"))
 
 # Ensure directories exist
-UPLOADS.mkdir(exist_ok=True)
-OUTPUTS.mkdir(exist_ok=True)
+UPLOADS.mkdir(exist_ok=True, parents=True)
+OUTPUTS.mkdir(exist_ok=True, parents=True)
 
 def cleanup_old_files(directory: Path, max_age_hours: int = 24):
     """Remove files older than max_age_hours from the specified directory."""
@@ -788,27 +788,5 @@ def download(filename):
         return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    # Initialize JVM with specific options
-    if not jpype.isJVMStarted():
-        try:
-            classpath = os.environ.get('CLASSPATH')
-            jvm_options = [
-                "-Djava.awt.headless=true",
-                "-Dfile.encoding=UTF8",
-                f"-Djava.class.path={classpath}" if classpath else ""
-            ]
-            
-            jvm_options = [opt for opt in jvm_options if opt]
-
-            jpype.startJVM(jpype.getDefaultJVMPath(), *jvm_options, convertStrings=True)
-        except Exception as e:
-            print(f"JVM startup error: {e}")
-            sys.exit(1)
-    
-    # Clean up old files on startup
-    cleanup_old_files(UPLOADS)
-    cleanup_old_files(OUTPUTS)
-    
-    # Run Flask app
     port = int(os.getenv('PORT', 8000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
