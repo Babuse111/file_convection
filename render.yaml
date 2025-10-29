@@ -1,21 +1,13 @@
 services:
   - type: web
-    name: bank-statement-converter
+    name: file-convection
     env: python
     buildCommand: |
-      # Install system dependencies
-      apt-get update && apt-get install -y default-jdk build-essential python3-dev
-      # Upgrade pip and install build tools
       python -m pip install --upgrade pip setuptools wheel
-      # Install requirements
-      pip install --no-cache-dir -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
-    envVars:
-      - key: PYTHONUNBUFFERED
-        value: "true"
-      - key: FLASK_ENV
-        value: "production"
-      - key: UPLOAD_DIR
-        value: "/tmp/uploads"
-      - key: OUTPUT_DIR
-        value: "/tmp/outputs"
+      pip install numpy==1.24.3
+      pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    env_vars:
+      - key: PYTHON_VERSION
+        value: 3.11.7
+    python_version: 3.11.7
