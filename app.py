@@ -787,6 +787,10 @@ def download(filename):
         flash(f'Error downloading file: {str(e)}')
         return redirect(url_for('index'))
 
+@app.route('/health')
+def health_check():
+    return {'status': 'healthy'}, 200
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8000))
     app.run(host='0.0.0.0', port=port)

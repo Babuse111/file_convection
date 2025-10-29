@@ -24,3 +24,15 @@ temp/
 # Environment variables
 .env
 .env.local
+
+# Build files
+*.pyc
+build/
+dist/
+*.egg-info/
+
+# Poetry
+poetry.lock
+
+# Render specific
+.render/
