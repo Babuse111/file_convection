@@ -15,8 +15,14 @@
 #   See NOTICE file for details.
 #
 # *****************************************************************************
-import sys
+from __future__ import annotations
+
 import atexit
+import os
+from pathlib import Path
+import sys
+import typing
+
 import _jpype
 from . import types as _jtypes
 from . import _classpath
@@ -46,11 +52,18 @@ class JVMNotRunning(RuntimeError):
 
 # Activate jedi tab completion
 try:
-    import jedi as _jedi
-    _jedi.evaluate.compiled.access.ALLOWED_DESCRIPTOR_ACCESS += \
-        (_jpype._JMethod, _jpype._JField)
-except Exception:
+    from jedi import __version__ as _jedi_version
+    import jedi.access as _jedi_access
+    _jedi_access.ALLOWED_DESCRIPTOR_ACCESS += _jpype._JMethod, _jpype._JField
+except ModuleNotFoundError:
     pass
+except AttributeError:
+    import warnings as _w
+    _w.warn(f"provided Jedi seems out of date. Version is {_jedi_version}.")
+
+
+if typing.TYPE_CHECKING:
+    _PathOrStr = typing.Union[str, os.PathLike]
 
 
 # See http://scottlobdell.me/2015/04/decorators-arguments-python/
@@ -96,24 +109,55 @@ def isJVMStarted():
     return _jpype.isStarted()
 
 
-def _hasClassPath(args):
-    for i in args:
-        if i.startswith('-Djava.class.path'):
-            return True
-    return False
+def _getOption(args, var, sep=None, keep=False):
+    """ Get an option and remove it from the current jvm arguments list """
+    for i, v in enumerate(args):
+        if not isinstance(v, str):
+            continue
+        _, _, value = v.partition('%s=' % var)
+        if value:
+            if not keep:
+                del args[i]
+            if sep is not None:
+                return value.split(sep)
+            return value
+    return []
 
 
-def _handleClassPath(clsList):
-    out = []
-    for s in clsList:
-        if not isinstance(s, str):
-            raise TypeError("Classpath elements must be strings")
-        if s.endswith('*'):
+def _expandClassPath(
+    classpath: typing.Union[typing.Sequence[_PathOrStr],
+                            _PathOrStr, None] = None
+) -> typing.List[str]:
+    """
+    Return a classpath which represents the given tuple of classpath specifications
+    """
+    out: list[str] = []
+    if isinstance(classpath, (str, os.PathLike)):
+        classpath = (classpath,)
+    try:
+        # Convert anything iterable into a tuple.
+        classpath = tuple(classpath)  # type: ignore[arg-type]
+    except TypeError:
+        raise TypeError("Unknown class path element")
+
+    for element in classpath:
+        try:
+            pth = os.fspath(element)
+        except TypeError as err:
+            raise TypeError(
+                "Classpath elements must be strings or Path-like") from err
+
+        if isinstance(pth, bytes):
+            # In the future we may allow this to support Paths which are undecodable.
+            # https://docs.python.org/3/howto/unicode.html#unicode-filenames.
+            raise TypeError("Classpath elements must be strings or Path-like")
+
+        if pth.endswith('*'):
             import glob
-            out.extend(glob.glob(s + '.jar'))
+            out.extend(glob.glob(pth + '.jar'))
         else:
-            out.append(s)
-    return _classpath._SEP.join(out)
+            out.append(pth)
+    return out
 
 
 _JVM_started = False
@@ -123,7 +167,43 @@ def interactive():
     return bool(getattr(sys, 'ps1', sys.flags.interactive))
 
 
-def startJVM(*args, **kwargs):
+def _findTemp():
+    dirlist = []
+    # Mirror Python tempfile with a check for ascii
+    for envname in 'TMPDIR', 'TEMP', 'TMP':
+        dirname = os.getenv(envname)
+        if dirname and dirname.isascii():
+            dirlist.append(dirname)
+    if os.name == 'nt':
+        for dirname in [os.path.expanduser(r'~\AppData\Local\Temp'),
+                        os.path.expandvars(r'%SYSTEMROOT%\Temp'),
+                        r'c:\temp', r'c:\tmp', r'\temp', r'\tmp']:
+            if dirname and dirname.isascii():
+                dirlist.append(dirname)
+    else:
+        dirlist.extend(['/tmp', '/var/tmp', '/usr/tmp'])
+
+    name = str(os.getpid())
+    for d in dirlist:
+        p = Path("%s/%s" % (d, name))
+        try:
+            p.touch()
+            p.unlink()
+        except Exception as ex:
+            continue
+        return d
+    raise SystemError("Unable to find non-ansii path")
+
+
+def startJVM(
+    *jvmargs: str,
+    jvmpath: typing.Optional[_PathOrStr] = None,
+    classpath: typing.Union[typing.Sequence[_PathOrStr],
+                            _PathOrStr, None] = None,
+    ignoreUnrecognized: bool = False,
+    convertStrings: bool = False,
+    interrupt: bool = not interactive(),
+) -> None:
     """
     Starts a Java Virtual Machine.  Without options it will start
     the JVM with the default classpath and jvmpath.
@@ -132,14 +212,14 @@ def startJVM(*args, **kwargs):
     The default jvmpath is determined by ``jpype.getDefaultJVMPath()``.
 
     Parameters:
-     *args (Optional, str[]): Arguments to give to the JVM.
-        The first argument may be the path the JVM.
+     *jvmargs (Optional, str[]): Arguments to give to the JVM.
+        The first argument may be the path to the JVM.
 
     Keyword Arguments:
-      jvmpath (str):  Path to the jvm library file,
+      jvmpath (str, PathLike):  Path to the jvm library file,
         Typically one of (``libjvm.so``, ``jvm.dll``, ...)
         Using None will apply the default jvmpath.
-      classpath (str,[str]): Set the classpath for the JVM.
+      classpath (str, PathLike, [str, PathLike]): Set the classpath for the JVM.
         This will override any classpath supplied in the arguments
         list. A value of None will give no classpath to JVM.
       ignoreUnrecognized (bool): Option to ignore
@@ -158,71 +238,124 @@ def startJVM(*args, **kwargs):
 
     Raises:
       OSError: if the JVM cannot be started or is already running.
-      TypeError: if an invalid keyword argument is supplied
-        or a keyword argument conflicts with the arguments.
+      TypeError: if a keyword argument conflicts with the positional arguments.
 
      """
+
+# Code for 1.6
+#    modulepath: typing.Union[typing.Sequence[_PathOrStr], _PathOrStr, None] = None,
+
     if _jpype.isStarted():
         raise OSError('JVM is already started')
     global _JVM_started
     if _JVM_started:
         raise OSError('JVM cannot be restarted')
 
-    args = list(args)
+    # Convert to list
+    jvm_args: list[str] = list(jvmargs)
 
     # JVM path
-    jvmpath = None
-    if args:
+    if jvm_args:
         # jvm is the first argument the first argument is a path or None
-        if not args[0] or not args[0].startswith('-'):
-            jvmpath = args.pop(0)
-    if 'jvmpath' in kwargs:
-        if jvmpath:
-            raise TypeError('jvmpath specified twice')
-        jvmpath = kwargs.pop('jvmpath')
+        if jvm_args[0] is None or (isinstance(jvm_args[0], str) and not jvm_args[0].startswith('-')):
+            if jvmpath:
+                raise TypeError('jvmpath specified twice')
+            jvmpath = jvm_args[0]
+            jvm_args = jvm_args[1:]
+
     if not jvmpath:
         jvmpath = getDefaultJVMPath()
-
-    # Classpath handling
-    if _hasClassPath(args):
-        # Old style, specified in the arguments
-        if 'classpath' in kwargs:
-            # Cannot apply both styles, conflict
-            raise TypeError('classpath specified twice')
-        classpath = None
-    elif 'classpath' in kwargs:
-        # New style, as a keywork
-        classpath = kwargs.pop('classpath')
     else:
-        # Not speficied at all, use the default classpath
-        classpath = _classpath.getClassPath()
+        # Allow the path to be a PathLike.
+        jvmpath = os.fspath(jvmpath)
 
     # Handle strings and list of strings.
-    if classpath:
-        if isinstance(classpath, str):
-            args.append('-Djava.class.path=%s' % _handleClassPath([classpath]))
-        elif hasattr(classpath, '__iter__'):
-            args.append('-Djava.class.path=%s' % _handleClassPath(classpath))
-        else:
-            raise TypeError("Unknown class path element")
+    extra_jvm_args: list[str] = []
 
-    ignoreUnrecognized = kwargs.pop('ignoreUnrecognized', False)
-    convertStrings = kwargs.pop('convertStrings', False)
-    interrupt = kwargs.pop('interrupt', not interactive())
+    # Classpath handling
+    old_classpath = _getOption(jvm_args, "-Djava.class.path", _classpath._SEP)
+    if old_classpath:
+        # Old style, specified in the arguments
+        if classpath is not None:
+            # Cannot apply both styles, conflict
+            raise TypeError('classpath specified twice')
+        classpath = old_classpath
+    elif classpath is None:
+        # Not specified at all, use the default classpath.
+        classpath = _classpath.getClassPath()
 
-    if kwargs:
-        raise TypeError("startJVM() got an unexpected keyword argument '%s'"
-                        % (','.join([str(i) for i in kwargs])))
+# Code for 1.6 release when we add module support
+#    # Modulepath handling
+#    old_modulepath = _getOption(jvm_args, "--module-path", _classpath._SEP)
+#    if old_modulepath:
+#        # Old style, specified in the arguments
+#        if modulepath is not None:
+#            # Cannot apply both styles, conflict
+#            raise TypeError('modulepath specified twice')
+#        modulepath = old_modulepath
+#    if modulepath is not None:
+#        mp = _classpath._SEP.join(_expandClassPath(modulepath))
+#        extra_jvm_args += ['--module-path=%s'%mp ]
+
+    # Get the support library
+    support_lib = os.path.join(os.path.dirname(
+        os.path.dirname(__file__)), "org.jpype.jar")
+    if not os.path.exists(support_lib):
+        raise RuntimeError(
+            "Unable to find org.jpype.jar support library at " + support_lib)
+
+    system_class_loader = _getOption(
+        jvm_args, "-Djava.system.class.loader", keep=True)
+
+    java_class_path = _expandClassPath(classpath)
+    java_class_path.append(support_lib)
+    java_class_path = list(filter(len, java_class_path))
+    classpath = _classpath._SEP.join(java_class_path)
+    tmp = None
+
+    # Make sure our module is always on the classpath
+    if not classpath.isascii():
+        if system_class_loader:
+            # https://bugs.openjdk.org/browse/JDK-8079633?jql=text%20~%20%22ParseUtil%22
+            raise ValueError(
+                "system classloader cannot be specified with non ascii characters in the classpath")
+
+        # If we are not installed on an ascii path then we will need to copy the jar to a new location
+        if not support_lib.isascii():
+            import tempfile
+            import shutil
+            fd, path = tempfile.mkstemp(dir=_findTemp())
+            if not path.isascii():
+                raise ValueError("Unable to find ascii temp directory.")
+            shutil.copyfile(support_lib, path)
+            support_lib = path
+            tmp = path
+            os.close(fd)
+            # Don't remove
+
+        # ok, setup the jpype system classloader and add to the path after startup
+        # this guarentees all classes have the same permissions as they did in the past
+        from urllib.parse import quote
+        extra_jvm_args += [
+            '-Djava.system.class.loader=org.jpype.JPypeClassLoader',
+            '-Djava.class.path=%s' % support_lib,
+            '-Djpype.class.path=%s' % quote(classpath),
+            '-Xshare:off'
+        ]
+    else:
+        # no problems
+        extra_jvm_args += ['-Djava.class.path=%s' % classpath]
 
     try:
         import locale
         # Gather a list of locale settings that Java may override (excluding LC_ALL)
-        categories = [getattr(locale, i) for i in dir(locale) if i.startswith('LC_') and i != 'LC_ALL']
+        categories = [getattr(locale, i) for i in dir(
+            locale) if i.startswith('LC_') and i != 'LC_ALL']
         # Keep the current locale settings, else Java will replace them.
         prior = [locale.getlocale(i) for i in categories]
         # Start the JVM
-        _jpype.startup(jvmpath, tuple(args),
-                       ignoreUnrecognized, convertStrings, interrupt)
+        _jpype.startup(jvmpath, tuple(jvm_args + extra_jvm_args),
+                       ignoreUnrecognized, convertStrings, interrupt, tmp)
         # Collect required resources for operation
         initializeResources()
         # Restore locale
@@ -238,8 +371,8 @@ def startJVM(*args, **kwargs):
             match = re.search(r"([0-9]+)\.[0-9]+", source)
             if match:
                 version = int(match.group(1)) - 44
-                raise RuntimeError("%s is older than required Java version %d" % (
-                    jvmpath, version)) from ex
+                raise RuntimeError(
+                    f"{jvmpath} is older than required Java version{version}") from ex
         raise
 
 
@@ -317,6 +450,7 @@ def initializeResources():
     _jpype._type_classes[object] = _jpype._java_lang_Object
     _jpype._type_classes[_jpype.JString] = _jpype._java_lang_String
     _jpype._type_classes[_jpype.JObject] = _jpype._java_lang_Object
+    _jpype._type_classes[_jpype.JClass] = _jpype._java_lang_Class
     _jinit.runJVMInitializers()
 
     _jpype.JClass('org.jpype.JPypeKeywords').setKeywords(
@@ -325,7 +459,7 @@ def initializeResources():
     _jpype.JPypeContext = _jpype.JClass('org.jpype.JPypeContext').getInstance()
     _jpype.JPypeClassLoader = _jpype.JPypeContext.getClassLoader()
 
-    # Everything successed so started is now true.
+    # Everything succeeded so started is now true.
     _JVM_started = True
 
 

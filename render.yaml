@@ -2,12 +2,17 @@ services:
   - type: web
     name: file-convection
     env: python
-    buildCommand: |
-      python -m pip install --upgrade pip setuptools wheel
-      pip install numpy==1.24.3
-      pip install -r requirements.txt
-    startCommand: gunicorn app:app
-    env_vars:
+    buildCommand: pip install poetry && poetry install
+    startCommand: poetry run python wsgi.py
+    envVars:
       - key: PYTHON_VERSION
-        value: 3.11.7
-    python_version: 3.11.7
+        value: 3.13.7
+      - key: PORT
+        value: 8000
+      - key: HOST
+        value: 0.0.0.0
+      - key: THREADS
+        value: 4
+      - key: FLASK_ENV
+        value: production
+    autoDeploy: true

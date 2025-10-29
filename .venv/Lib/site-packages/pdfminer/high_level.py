@@ -5,13 +5,20 @@ import sys
 from io import StringIO
 from typing import Any, BinaryIO, Container, Iterator, Optional, cast
 
-from .converter import XMLConverter, HTMLConverter, TextConverter, PDFPageAggregator
-from .image import ImageWriter
-from .layout import LAParams, LTPage
-from .pdfdevice import PDFDevice, TagExtractor
-from .pdfinterp import PDFResourceManager, PDFPageInterpreter
-from .pdfpage import PDFPage
-from .utils import open_filename, FileOrName, AnyIO
+from pdfminer.converter import (
+    HOCRConverter,
+    HTMLConverter,
+    PDFPageAggregator,
+    TextConverter,
+    XMLConverter,
+)
+from pdfminer.image import ImageWriter
+from pdfminer.layout import LAParams, LTPage
+from pdfminer.pdfdevice import PDFDevice, TagExtractor
+from pdfminer.pdfexceptions import PDFValueError
+from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
+from pdfminer.pdfpage import PDFPage
+from pdfminer.utils import AnyIO, FileOrName, open_filename
 
 
 def extract_text_to_fp(
@@ -41,8 +48,8 @@ def extract_text_to_fp(
     :param inf: a file-like object to read PDF structure from, such as a
         file handler (using the builtin `open()` function) or a `BytesIO`.
     :param outfp: a file-like object to write the text to.
-    :param output_type: May be 'text', 'xml', 'html', 'tag'. Only 'text' works
-        properly.
+    :param output_type: May be 'text', 'xml', 'html', 'hocr', 'tag'.
+        Only 'text' works properly.
     :param codec: Text decoding codec
     :param laparams: An LAParams object from pdfminer.layout. Default is None
         but may not layout correctly.
@@ -76,7 +83,11 @@ def extract_text_to_fp(
 
     if output_type == "text":
         device = TextConverter(
-            rsrcmgr, outfp, codec=codec, laparams=laparams, imagewriter=imagewriter
+            rsrcmgr,
+            outfp,
+            codec=codec,
+            laparams=laparams,
+            imagewriter=imagewriter,
         )
 
     elif output_type == "xml":
@@ -100,13 +111,22 @@ def extract_text_to_fp(
             imagewriter=imagewriter,
         )
 
+    elif output_type == "hocr":
+        device = HOCRConverter(
+            rsrcmgr,
+            outfp,
+            codec=codec,
+            laparams=laparams,
+            stripcontrol=strip_control,
+        )
+
     elif output_type == "tag":
         # Binary I/O is required, but we have no good way to test it here.
         device = TagExtractor(rsrcmgr, cast(BinaryIO, outfp), codec=codec)
 
     else:
-        msg = f"Output type can be text, html, xml or tag but is " f"{output_type}"
-        raise ValueError(msg)
+        msg = f"Output type can be text, html, xml or tag but is {output_type}"
+        raise PDFValueError(msg)
 
     assert device is not None
     interpreter = PDFPageInterpreter(rsrcmgr, device)
@@ -184,7 +204,7 @@ def extract_pages(
     :param caching: If resources should be cached
     :param laparams: An LAParams object from pdfminer.layout. If None, uses
         some default settings that often work well.
-    :return:
+    :return: LTPage objects
     """
     if laparams is None:
         laparams = LAParams()
@@ -195,7 +215,11 @@ def extract_pages(
         device = PDFPageAggregator(resource_manager, laparams=laparams)
         interpreter = PDFPageInterpreter(resource_manager, device)
         for page in PDFPage.get_pages(
-            fp, page_numbers, maxpages=maxpages, password=password, caching=caching
+            fp,
+            page_numbers,
+            maxpages=maxpages,
+            password=password,
+            caching=caching,
         ):
             interpreter.process_page(page)
             layout = device.get_result()

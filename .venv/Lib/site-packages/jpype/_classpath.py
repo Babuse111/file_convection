@@ -16,6 +16,8 @@
 #
 # *****************************************************************************
 import os as _os
+import typing
+
 import _jpype
 
 __all__ = ['addClassPath', 'getClassPath']
@@ -24,7 +26,7 @@ _CLASSPATHS = []
 _SEP = _os.path.pathsep
 
 
-def addClassPath(path1):
+def addClassPath(path1: typing.Union[str, _os.PathLike]) -> None:
     """ Add a path to the Java class path
 
     Classpath items can be a java, a directory, or a
@@ -50,7 +52,7 @@ def addClassPath(path1):
         path1 = path2.joinpath(path1)
 
     # If the JVM is already started then we will have to load the paths
-    # immediately into the DynamicClassLoader
+    # immediately into the JPypeClassLoader
     if _jpype.isStarted():
         Paths = _jpype.JClass('java.nio.file.Paths')
         JContext = _jpype.JClass('org.jpype.JPypeContext')
@@ -60,13 +62,13 @@ def addClassPath(path1):
             if len(paths) == 0:
                 return
             for path in paths:
-                classLoader.addFile(Paths.get(str(path)))
+                classLoader.addPath(Paths.get(str(path)))
         else:
-            classLoader.addFile(Paths.get(str(path1)))
+            classLoader.addPath(Paths.get(str(path1)))
     _CLASSPATHS.append(path1)
 
 
-def getClassPath(env=True):
+def getClassPath(env: bool = True) -> str:
     """ Get the full Java class path.
 
     Includes user added paths and the environment CLASSPATH.
@@ -79,7 +81,7 @@ def getClassPath(env=True):
     global _CLASSPATHS
     global _SEP
 
-    # Merge the evironment path
+    # Merge the environment path
     classPath = list(_CLASSPATHS)
     envPath = _os.environ.get("CLASSPATH")
     if env and envPath:
