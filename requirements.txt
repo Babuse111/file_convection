@@ -1,12 +1,11 @@
-setuptools==57.5.0
-wheel==0.37.1
+setuptools==68.0.0
+wheel==0.40.0
 Flask==2.0.1
 Werkzeug==2.0.3
 tabula-py==2.3.0
-pandas==1.2.4
+pandas==1.5.3
 pdfplumber==0.7.4
 python-dotenv==0.19.2
 gunicorn==20.1.0
-numpy==1.19.5
-JPype1==1.2.1
-openjdk-11-jdk
+numpy==1.24.3
+JPype1==1.4.1
