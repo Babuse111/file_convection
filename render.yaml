@@ -2,17 +2,13 @@ services:
   - type: web
     name: file-convection
     env: python
-    python_version: 3.11.7
-    buildCommand: |
-      python -m pip install --upgrade pip
-      pip install poetry==1.7.1
-      poetry config virtualenvs.create false
-      poetry install --no-dev
-    startCommand: poetry run gunicorn wsgi:app
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.7
       - key: PORT
         value: 8000
       - key: FLASK_ENV
         value: production
     healthCheckPath: /health
-    autoDeploy: true
