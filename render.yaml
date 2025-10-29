@@ -3,12 +3,14 @@ services:
     name: bank-statement-converter
     env: python
     buildCommand: |
-      apt-get update && apt-get install -y openjdk-11-jdk
+      apt-get update
+      apt-get install -y $(cat apt.txt)
+      pip install --upgrade pip setuptools wheel
       pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.8.18
+        value: 3.8.12
       - key: FLASK_ENV
         value: production
       - key: UPLOAD_DIR
