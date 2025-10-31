@@ -60,8 +60,18 @@ def configure_java() -> bool:
     if not jpype.isJVMStarted():
         try:
             # On Linux, libjvm.so should be found automatically if JAVA_HOME is correct
-            jpype.startJVM(jpype.getDefaultJVMPath(), convertStrings=False)
-            print("JVM started successfully.")
+            jvm_path = jpype.getDefaultJVMPath()
+            if not Path(jvm_path).exists():
+                # Fallback for Render/Debian-based systems
+                debian_jvm_path = '/usr/lib/jvm/default-java/lib/server/libjvm.so'
+                if Path(debian_jvm_path).exists():
+                    jvm_path = debian_jvm_path
+                else:
+                    print("Error: libjvm.so not found at default or fallback paths.")
+                    return False
+            
+            jpype.startJVM(jvm_path, convertStrings=False)
+            print(f"JVM started successfully from {jvm_path}.")
         except Exception as e:
             print(f"Failed to start JVM: {e}")
             return False
