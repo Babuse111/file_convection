@@ -2,8 +2,24 @@ services:
   - type: web
     name: file-convection
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app
+    buildCommand: |
+      # Update package lists and install Java
+      apt-get update
+      apt-get install -y default-jdk build-essential python3-dev
+
+      # Verify Java installation
+      java -version
+
+      # Install latest pip and build tools
+      python -m pip install --upgrade pip wheel setuptools
+      
+      # Install JPype1 first
+      pip install --no-cache-dir JPype1>=1.6.0
+      
+      # Install remaining requirements
+      pip install -r requirements.txt
+    startCommand: |
+      gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 4 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.7
@@ -11,4 +27,7 @@ services:
         value: 8000
       - key: FLASK_ENV
         value: production
+      - key: JAVA_HOME
+        value: /usr/lib/jvm/java-11-openjdk-amd64
     healthCheckPath: /health
+    autoDeploy: true

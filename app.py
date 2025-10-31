@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
 import jpype
-from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
@@ -789,4 +789,4 @@ def download(filename):
 
 @app.route('/health')
 def health_check():
-    return {'status': 'healthy'}, 200
+    return jsonify({"status": "healthy"}), 200
