@@ -10,7 +10,6 @@ import pdfplumber
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
-import jpype
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -22,12 +21,15 @@ def get_jar_files(lib_path: Path) -> List[str]:
 
 def configure_java() -> bool:
     """Configure Java environment for the application."""
-    # Set Java paths
-    java_home = Path(os.getenv('JAVA_HOME', r'C:\Program Files\Java\jdk-22'))
+    java_home_str = os.getenv('JAVA_HOME')
+    if not java_home_str:
+        print("Error: JAVA_HOME environment variable is not set.")
+        return False
+
+    java_home = Path(java_home_str)
     if not java_home.exists():
         print(f"Error: Java installation not found at {java_home}")
-        # Note: In a real deployment, this might need further configuration
-        pass 
+        return False
 
     # Add both bin and lib directories to PATH
     java_bin = str(java_home / 'bin')
@@ -40,7 +42,6 @@ def configure_java() -> bool:
         paths.insert(0, java_lib)
     
     os.environ['PATH'] = os.pathsep.join(paths)
-    os.environ['JAVA_HOME'] = str(java_home)
 
     # Configure classpath with required JAR files
     lib_path = Path(__file__).parent / 'lib'
@@ -51,6 +52,20 @@ def configure_java() -> bool:
         
     os.environ['CLASSPATH'] = os.pathsep.join(jar_files)
     
+    # Dynamically import jpype and start JVM if not started
+    global jpype
+    import jpype
+    import jpype.imports
+    
+    if not jpype.isJVMStarted():
+        try:
+            # On Linux, libjvm.so should be found automatically if JAVA_HOME is correct
+            jpype.startJVM(jpype.getDefaultJVMPath(), convertStrings=False)
+            print("JVM started successfully.")
+        except Exception as e:
+            print(f"Failed to start JVM: {e}")
+            return False
+            
     return True
 
 # Initialize Java before other imports
