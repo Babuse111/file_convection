@@ -32,4 +32,5 @@ EXPOSE 10000
 # Start Gunicorn with preloading enabled and a single worker
 # --preload loads the app before forking workers, ensuring one JVM instance
 # --workers 1 ensures memory stability on resource-constrained environments
-CMD ["gunicorn", "--preload", "--workers", "1", "--bind", "0.0.0.0:$PORT", "--timeout", "180", "wsgi:app"]
+# Use shell form of CMD to allow for environment variable substitution for $PORT
+CMD gunicorn --preload --workers 1 --bind "0.0.0.0:$PORT" --timeout 180 wsgi:app
