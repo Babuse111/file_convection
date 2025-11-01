@@ -2,9 +2,9 @@ services:
   - type: web
     name: file-convection
     env: python
-    # The python version is now set in the Render Dashboard Environment Variables
+    # The python version is set in the Render Dashboard
     # PYTHON_VERSION = 3.11.7
-    buildCommand: "pip install -r requirements.txt && mkdir -p logs"
+    buildCommand: "apt-get update && apt-get install -y default-jdk && mkdir -p logs && pip install -r requirements.txt"
     startCommand: "gunicorn wsgi:app"
     envVars:
       - key: FLASK_ENV
