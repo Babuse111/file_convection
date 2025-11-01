@@ -28,5 +28,5 @@ RUN python -m pip install --upgrade pip && \
 # Expose the port Render will run the service on.
 EXPOSE 10000
 
-# Command to run the application using the Gunicorn production server with preload to share JVM.
-CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 180 --preload --log-level debug --error-logfile - wsgi:app
+# Command to run the application using the Gunicorn production server.
+CMD gunicorn --bind 0.0.0.0:$PORT --timeout 180 --log-level debug --error-logfile - wsgi:app

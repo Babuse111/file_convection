@@ -722,7 +722,6 @@ def upload():
             return redirect(url_for('index'))
             
         file = request.files['pdf']
-        # Retrieve the selected bank type from the form
         bank_type = request.form.get('bank_type')
         
         if file.filename == '':
@@ -737,58 +736,43 @@ def upload():
             flash('Please select a bank', 'error')
             return redirect(url_for('index'))
             
-        # Check for supported banks explicitly
         supported_banks = ['CAPITEC', 'FNB', 'ABSA', 'STANDARD']
         if bank_type not in supported_banks:
             flash(f'Unsupported bank selected: {bank_type}', 'error')
             return redirect(url_for('index'))
         
-        # Create unique filename and path
         filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
         pdf_path = UPLOADS / filename
-        
-        # Save uploaded file
         file.save(pdf_path)
         
         try:
-            # Process based on selected bank
             csv_content = process_bank_statement_to_csv(pdf_path, bank_type)
             
-            # Generate output filename
             out_name = f"processed_{filename.rsplit('.', 1)[0]}.csv"
             out_path = OUTPUTS / out_name
             
-            # Write CSV content
             with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(csv_content)
             
-            # Cleanup uploaded PDF
             pdf_path.unlink(missing_ok=True)
             
-            return redirect(url_for('download', filename=out_name))
+            # Return the file for download directly
+            return send_from_directory(
+                directory=OUTPUTS,
+                path=out_name,
+                as_attachment=True,
+                download_name=f"processed_{bank_type}_{datetime.now().strftime('%Y%m%d')}.csv"
+            )
             
         except Exception as e:
             if pdf_path.exists():
                 pdf_path.unlink(missing_ok=True)
-            # Ensure the error message is user-friendly
             error_message = str(e) if 'Failed to process' in str(e) else f'Error processing file. Ensure the PDF is clearly legible: {str(e)}'
             flash(error_message, 'error')
             return redirect(url_for('index'))
             
     except Exception as e:
         flash(f'Upload error: {str(e)}', 'error')
-        return redirect(url_for('index'))
-
-@app.route('/download/<filename>')
-def download(filename):
-    """Sends the processed CSV file for download."""
-    try:
-        # Set a cookie that the JavaScript can check for
-        response = send_from_directory(OUTPUTS, filename, as_attachment=True)
-        response.set_cookie('fileDownload', 'true', max_age=20) # Cookie expires in 20 seconds
-        return response
-    except Exception as e:
-        flash(f'Error downloading file: {str(e)}')
         return redirect(url_for('index'))
 
 @app.route('/health')
