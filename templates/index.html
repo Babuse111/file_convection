@@ -89,42 +89,19 @@
         document.querySelector('form').addEventListener('submit', function(event) {
             const bankType = document.getElementById('bank_type').value;
             const fileInput = document.getElementById('pdf');
+            const form = event.target;
+            const loadingMessage = document.getElementById('loading-message');
+            const submitButton = form.querySelector('button');
 
+            // Check if the form is valid before showing the loading message.
             if (bankType && fileInput.files.length > 0) {
-                event.preventDefault(); // Prevent default submission only if form is valid
-
-                const form = event.target;
-                const formData = new FormData(form);
-                const loadingMessage = document.getElementById('loading-message');
-                const submitButton = form.querySelector('button');
-
-                // Show loading message and disable button
+                // Show loading message and disable the button to prevent multiple submissions.
                 loadingMessage.style.display = 'block';
                 submitButton.disabled = true;
                 submitButton.textContent = 'Processing...';
-
-                fetch(form.action, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => {
-                    // The server will trigger a download, and we just need to reload the page
-                    // to see the success message. The browser handles the download automatically.
-                    // A small delay can help ensure the download has started before reload.
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000); // 1-second delay
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    // In case of an error, re-enable the form and hide the loading message
-                    loadingMessage.style.display = 'none';
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'Convert Statement';
-                    // Optionally, display an error message to the user
-                    alert('An error occurred during the file upload. Please try again.');
-                });
             }
+            // We do NOT prevent the default submission, so the browser will
+            // handle the file download response from the server correctly.
         });
     </script>
 </body>
