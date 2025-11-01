@@ -29,4 +29,4 @@ RUN python -m pip install --upgrade pip && \
 EXPOSE 10000
 
 # Command to run the application using the Gunicorn production server.
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "wsgi:app"]
+CMD gunicorn --bind 0.0.0.0:$PORT wsgi:app
