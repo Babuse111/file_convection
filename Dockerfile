@@ -29,5 +29,7 @@ RUN python -m pip install --upgrade pip && \
 EXPOSE 10000
 
 # Command to run the application using Gunicorn.
-# We are reverting to the faster configuration without --preload.
-CMD gunicorn --bind 0.0.0.0:$PORT --timeout 180 --log-level debug wsgi:app
+# --max-requests 1 tells Gunicorn to restart a worker after each request.
+# This is a strategy to manage memory in constrained environments by ensuring
+# a fresh process for each heavy PDF processing task.
+CMD gunicorn --bind 0.0.0.0:$PORT --timeout 180 --max-requests 1 --log-level debug wsgi:app
