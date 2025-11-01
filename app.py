@@ -715,64 +715,84 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    """Handles PDF upload, processes it based on bank type, and triggers download."""
+    """Handles PDF upload, processes it, and redirects to the download route."""
     try:
         if 'pdf' not in request.files:
-            flash('No file uploaded', 'error')
+            flash('No file part in the request.', 'error')
             return redirect(url_for('index'))
             
         file = request.files['pdf']
         bank_type = request.form.get('bank_type')
         
         if file.filename == '':
-            flash('No file selected', 'error')
+            flash('No file selected for uploading.', 'error')
             return redirect(url_for('index'))
             
         if not file.filename.lower().endswith('.pdf'):
-            flash('Only PDF files are allowed', 'error')
+            flash('Invalid file type. Please upload a PDF.', 'error')
             return redirect(url_for('index'))
             
         if not bank_type:
-            flash('Please select a bank', 'error')
+            flash('Please select a bank type.', 'error')
             return redirect(url_for('index'))
             
         supported_banks = ['CAPITEC', 'FNB', 'ABSA', 'STANDARD']
         if bank_type not in supported_banks:
-            flash(f'Unsupported bank selected: {bank_type}', 'error')
+            flash(f'Invalid bank type selected: {bank_type}', 'error')
             return redirect(url_for('index'))
         
-        filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+        # Use a unique ID for the original file to avoid conflicts
+        unique_id = uuid.uuid4()
+        filename = f"{unique_id}_{secure_filename(file.filename)}"
         pdf_path = UPLOADS / filename
         file.save(pdf_path)
         
         try:
+            # Process the file and get the CSV content
             csv_content = process_bank_statement_to_csv(pdf_path, bank_type)
             
-            out_name = f"processed_{filename.rsplit('.', 1)[0]}.csv"
+            # Define the output filename
+            out_name = f"processed_{unique_id}_{bank_type}.csv"
             out_path = OUTPUTS / out_name
             
+            # Write the content to the output file
             with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(csv_content)
             
+            # Clean up the uploaded PDF file
             pdf_path.unlink(missing_ok=True)
             
-            # Return the file for download directly
-            return send_from_directory(
-                directory=OUTPUTS,
-                path=out_name,
-                as_attachment=True,
-                download_name=f"processed_{bank_type}_{datetime.now().strftime('%Y%m%d')}.csv"
-            )
+            # Redirect to the download route
+            return redirect(url_for('download', filename=out_name))
             
         except Exception as e:
-            if pdf_path.exists():
-                pdf_path.unlink(missing_ok=True)
-            error_message = str(e) if 'Failed to process' in str(e) else f'Error processing file. Ensure the PDF is clearly legible: {str(e)}'
-            flash(error_message, 'error')
+            # If processing fails, clean up and show error
+            pdf_path.unlink(missing_ok=True)
+            flash(f'An error occurred during processing: {str(e)}', 'error')
             return redirect(url_for('index'))
             
     except Exception as e:
         flash(f'Upload error: {str(e)}', 'error')
+        return redirect(url_for('index'))
+
+@app.route('/download/<filename>')
+def download(filename):
+    """Serves the processed file for download and sets a cookie."""
+    try:
+        # Ensure the file exists before attempting to send it
+        if not (OUTPUTS / filename).is_file():
+            flash('Could not find the processed file. It may have been cleaned up.', 'error')
+            return redirect(url_for('index'))
+
+        response = send_from_directory(OUTPUTS, filename, as_attachment=True)
+        
+        # Set a cookie that the frontend can check for
+        # It expires in 20 seconds, which is enough time for the JS to pick it up
+        response.set_cookie('fileDownload', 'true', max_age=20)
+        
+        return response
+    except Exception as e:
+        flash(f"Error downloading file: {e}", 'error')
         return redirect(url_for('index'))
 
 @app.route('/health')

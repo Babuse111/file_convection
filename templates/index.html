@@ -97,8 +97,28 @@
                 loadingMessage.style.display = 'block';
                 submitButton.disabled = true;
                 submitButton.textContent = 'Processing...';
+
+                // Start checking for the download cookie shortly after submission
+                setTimeout(checkCookie, 1500);
             }
         });
+
+        function checkCookie() {
+            // Check if the cookie 'fileDownload=true' exists
+            const cookieValue = document.cookie.split('; ').find(row => row.startsWith('fileDownload='));
+
+            if (cookieValue) {
+                // If the cookie is found, it means the download has started.
+                // 1. Clear the cookie by setting its expiry date to the past.
+                document.cookie = "fileDownload=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                
+                // 2. Reload the page to reset the form for the next conversion.
+                window.location.reload();
+            } else {
+                // If the cookie is not found, check again after 1 second.
+                setTimeout(checkCookie, 1000);
+            }
+        }
     </script>
 </body>
 </html>
