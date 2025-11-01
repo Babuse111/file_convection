@@ -1,36 +1,19 @@
-# Use the official Python 3.11 slim image as a baseFROM python:3.11-slim
-
+# Use the official Python 3.11 slim image as a base
 FROM python:3.11-slim
 
-# install Java (OpenJDK) and minimal system deps
-
-# Set environment variables to prevent interactive prompts during buildRUN apt-get update && \
-
-ENV DEBIAN_FRONTEND=noninteractive    apt-get install -y --no-install-recommends openjdk-17-jre-headless libfontconfig && \
-
-    rm -rf /var/lib/apt/lists/*
+# Set environment variables to prevent interactive prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install OpenJDK 17 (for JPype/tabula-py) and clean up apt cache
-
-# This runs as root inside the Docker build environmentENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends openjdk-17-jre-headless && \
+    rm -rf /var/lib/apt/lists/*
 
-    apt-get install -y --no-install-recommends openjdk-17-jre-headless && \WORKDIR /app
+# Set the JAVA_HOME environment variable for JPype to find the JVM
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
-    rm -rf /var/lib/apt/lists/*COPY . /app
-
-
-
-# Set the JAVA_HOME environment variable for JPype to find the JVMRUN python -m pip install --upgrade pip setuptools wheel
-
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64RUN pip install -r requirements.txt
-
-
-
-# Set the working directory in the containerEXPOSE 5001
-
-WORKDIR /appCMD ["python", "app.py"]
+# Set the working directory in the container
+WORKDIR /app
 
 # Copy the entire project into the working directory
 COPY . .
