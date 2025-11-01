@@ -2,19 +2,14 @@ services:
   - type: web
     name: file-convection
     env: python
-    pythonVersion: 3.11.7
-    clearCache: true
-    buildCommand: |
-      # Update package lists and install Java
-      apt-get update && apt-get install -y default-jdk
-      # Install dependencies
-      pip install -r requirements.txt
+    # The python version is now set in the Render Dashboard Environment Variables
+    # PYTHON_VERSION = 3.11.7
+    buildCommand: "pip install -r requirements.txt && mkdir -p logs"
     startCommand: "gunicorn wsgi:app"
     envVars:
       - key: FLASK_ENV
         value: production
       - key: JAVA_HOME
-        # This path is standard for Debian-based systems using default-jdk
         value: /usr/lib/jvm/default-java
     healthCheckPath: /health
     autoDeploy: true
