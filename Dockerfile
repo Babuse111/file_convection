@@ -29,4 +29,7 @@ RUN python -m pip install --upgrade pip && \
 EXPOSE 10000
 
 # Command to run the application using the Gunicorn production server.
-CMD gunicorn --bind 0.0.0.0:$PORT --timeout 180 --log-level debug --error-logfile - wsgi:app
+# Start Gunicorn with preloading enabled and a single worker
+# --preload loads the app before forking workers, ensuring one JVM instance
+# --workers 1 ensures memory stability on resource-constrained environments
+CMD ["gunicorn", "--preload", "--workers", "1", "--bind", "0.0.0.0:$PORT", "--timeout", "180", "wsgi:app"]
