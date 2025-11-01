@@ -783,7 +783,10 @@ def upload():
 def download(filename):
     """Sends the processed CSV file for download."""
     try:
-        return send_from_directory(OUTPUTS, filename, as_attachment=True)
+        # Set a cookie that the JavaScript can check for
+        response = send_from_directory(OUTPUTS, filename, as_attachment=True)
+        response.set_cookie('fileDownload', 'true', max_age=20) # Cookie expires in 20 seconds
+        return response
     except Exception as e:
         flash(f'Error downloading file: {str(e)}')
         return redirect(url_for('index'))

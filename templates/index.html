@@ -93,16 +93,37 @@
             const loadingMessage = document.getElementById('loading-message');
             const submitButton = form.querySelector('button');
 
-            // Check if the form is valid before showing the loading message.
             if (bankType && fileInput.files.length > 0) {
-                // Show loading message and disable the button to prevent multiple submissions.
+                // Show loading message and disable the button
                 loadingMessage.style.display = 'block';
                 submitButton.disabled = true;
                 submitButton.textContent = 'Processing...';
+
+                // We let the form submit normally. The server will respond with a file download
+                // and set a cookie named 'fileDownload'. We will check for this cookie.
+
+                // Start checking for the cookie shortly after submission
+                setTimeout(checkCookie, 1000);
             }
-            // We do NOT prevent the default submission, so the browser will
-            // handle the file download response from the server correctly.
         });
+
+        function checkCookie() {
+            const cookieValue = document.cookie.split('; ').find(row => row.startsWith('fileDownload='));
+
+            if (cookieValue) {
+                // Cookie found, which means the download has started.
+                // We can now reload the page.
+                
+                // First, clear the cookie so we don't get stuck in a loop
+                document.cookie = "fileDownload=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                
+                // Reload the page to clear the "Processing..." message
+                window.location.reload();
+            } else {
+                // Cookie not found yet, check again in a second
+                setTimeout(checkCookie, 1000);
+            }
+        }
     </script>
 </body>
 </html>
