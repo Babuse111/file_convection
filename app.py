@@ -21,37 +21,6 @@ def get_jar_files(lib_path: Path) -> List[str]:
 
 def configure_java() -> bool:
     """Configure Java environment for the application."""
-    java_home_str = os.getenv('JAVA_HOME')
-    if not java_home_str:
-        print("Error: JAVA_HOME environment variable is not set.")
-        return False
-
-    java_home = Path(java_home_str)
-    if not java_home.exists():
-        print(f"Error: Java installation not found at {java_home}")
-        return False
-
-    # Add both bin and lib directories to PATH
-    java_bin = str(java_home / 'bin')
-    java_lib = str(java_home / 'lib')
-    
-    paths = os.environ.get('PATH', '').split(os.pathsep)
-    if java_bin not in paths:
-        paths.insert(0, java_bin)
-    if java_lib not in paths:
-        paths.insert(0, java_lib)
-    
-    os.environ['PATH'] = os.pathsep.join(paths)
-
-    # Configure classpath with required JAR files
-    lib_path = Path(__file__).parent / 'lib'
-    jar_files = get_jar_files(lib_path)
-    
-    if not jar_files:
-        print("Warning: No JAR files found in lib directory.")
-        
-    os.environ['CLASSPATH'] = os.pathsep.join(jar_files)
-    
     # Dynamically import jpype and start JVM if not started
     global jpype
     import jpype
@@ -59,21 +28,28 @@ def configure_java() -> bool:
     
     if not jpype.isJVMStarted():
         try:
-            # On Linux, libjvm.so should be found automatically if JAVA_HOME is correct
-            jvm_path = jpype.getDefaultJVMPath()
-            if not Path(jvm_path).exists():
-                # Fallback for Render/Debian-based systems
-                debian_jvm_path = '/usr/lib/jvm/default-java/lib/server/libjvm.so'
-                if Path(debian_jvm_path).exists():
-                    jvm_path = debian_jvm_path
-                else:
-                    print("Error: libjvm.so not found at default or fallback paths.")
-                    return False
+            # Default path for Debian-based systems on Render
+            jvm_path = '/usr/lib/jvm/default-java/lib/server/libjvm.so'
             
+            if not Path(jvm_path).exists():
+                # Fallback to jpype's default finder if our path fails
+                print(f"Warning: JVM path {jvm_path} not found. Falling back to default.")
+                jvm_path = jpype.getDefaultJVMPath()
+
+            print(f"Attempting to start JVM with path: {jvm_path}")
             jpype.startJVM(jvm_path, convertStrings=False)
-            print(f"JVM started successfully from {jvm_path}.")
+            print("JVM started successfully.")
+
         except Exception as e:
-            print(f"Failed to start JVM: {e}")
+            print(f"CRITICAL: Failed to start JVM. Error: {e}")
+            # Try to find any libjvm.so as a last resort
+            try:
+                print("Last resort: Searching for libjvm.so...")
+                import subprocess
+                result = subprocess.run(['find', '/', '-name', 'libjvm.so'], capture_output=True, text=True)
+                print("Search results:\n" + result.stdout)
+            except Exception as search_e:
+                print(f"Failed to even search for libjvm.so: {search_e}")
             return False
             
     return True
