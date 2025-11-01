@@ -28,9 +28,6 @@ RUN python -m pip install --upgrade pip && \
 # Expose the port Render will run the service on.
 EXPOSE 10000
 
-# Command to run the application using the Gunicorn production server.
-# Make the start script executable
-RUN chmod +x start.sh
-
-# Start the Gunicorn server using the script
-CMD ["./start.sh"]
+# Command to run the application using Gunicorn.
+# We are reverting to the faster configuration without --preload.
+CMD gunicorn --bind 0.0.0.0:$PORT --timeout 180 --log-level debug wsgi:app
