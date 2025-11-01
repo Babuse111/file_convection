@@ -29,8 +29,8 @@ RUN python -m pip install --upgrade pip && \
 EXPOSE 10000
 
 # Command to run the application using the Gunicorn production server.
-# Start Gunicorn with preloading enabled and a single worker
-# --preload loads the app before forking workers, ensuring one JVM instance
-# --workers 1 ensures memory stability on resource-constrained environments
-# Use shell form of CMD to allow for environment variable substitution for $PORT
-CMD gunicorn --preload --workers 1 --bind "0.0.0.0:$PORT" --timeout 180 wsgi:app
+# Make the start script executable
+RUN chmod +x start.sh
+
+# Start the Gunicorn server using the script
+CMD ["./start.sh"]
